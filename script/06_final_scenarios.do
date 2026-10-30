@@ -4,20 +4,21 @@
 * Bulan di antara cutoff dan anchor dijembatani dengan observasi yang sudah ada di snapshot
 * (USD/IDR, flows, cadangan; TB September kosong dibiarkan tak teramati). Aturan bridge makro
 * ini hanya untuk forecast akhir, TIDAK dipakai dalam backtest.
-* Model akhir = global final_mode (levels | changes). Skenario ilustratif (bukan shock struktural),
+* Model = global model_mode (changes). Skenario ilustratif (bukan shock struktural),
 * besaran di 00_master.do: pada h = 3 dan 6, TB dan flows digeser terhadap median baseline, dan DXY
 * menuju (1 + g) pada akhir horizon. 2 Adverse, 3 Upside, 4 Severe Adverse.
 * Menulis: intermediate/final_residuals.dta, scenario_*.dta
 * Output:  tables/T7_baseline, T8_scenarios, T9_scenario_paths_all, T10_scenario_inputs,
-*          T11_global_paths; diagnostics/D3_residual_tests, D4_residual_corr, D5_scenario_ess_roots;
+*          T11_global_paths; diagnostics/D3_residual_tests, D4_residual_corr, D5_scenario_ess_roots,
+*          D6_dxy_effect;
 *          T14_scenario_summary; figures/6_residual_acf.png, 6_scenarios_fan.png,
 *          6_scenario_macro.png, 6_scenario_table.png
 
 **## 6.2 Jalankan fit akhir dan skenario
 use "$data\database.dta", clear
-mata: D = bv_load("$final_mode")
+mata: D = bv_load("$model_mode")
 mata: bv_final_run($latest_complete, $final_origin, $H_final, $best_start, $best_p, $best_lambda, ///
-	$include_ust, $n_final, $shock_mat, strtoreal(tokens(st_global("cond_horizons"))), $best_soc)
+	$include_ust, $n_final, $shock_mat, strtoreal(tokens(st_global("cond_horizons"))), 0)
 mata: st_global("fin_n", strofreal(FIN_info[1])); st_global("fin_from", strofreal(FIN_info[2]))
 di "Training akhir: " %tm $fin_from " sampai " %tm $latest_complete "; N = $fin_n"
 
@@ -135,7 +136,7 @@ format mdate %tm
 gen str8 var_name = word("y_s y_tb y_flows y_res", variable)
 * nilai dalam satuan alami
 * model changes: variabel 1 dan 4 berupa perubahan 100*log (persen), bukan level
-gen double value_natural = cond(variable == 3, value_model*10, cond((variable == 1 | variable == 4) & "$final_mode" == "levels", exp(value_model/100), value_model))
+gen double value_natural = cond(variable == 3, value_model*10, cond((variable == 1 | variable == 4) & "$model_mode" == "levels", exp(value_model/100), value_model))
 save "$data\scenario_conditions.dta", replace
 list, noobs sepby(scenario)
 bv_out tab "T10_scenario_inputs"
@@ -156,6 +157,28 @@ save "$data\scenario_diag.dta", replace
 bv_out diag "D5_scenario_ess_roots"
 qui count if low_ess
 if r(N) di as error "PERHATIAN: setidaknya satu skenario mempunyai ESS rendah. Gunakan sebagai draft; tambah draw."
+
+* Efek kontemporer DXY: +1% DXY pada bulan yang sama -> perubahan tiap variabel (posterior mean, interval 90%)
+* Hanya dampak bulan yang sama; dampak lanjutan lewat dinamika lag tidak termasuk.
+mata: bv_tostata(FIN_dxy, ("eq", "effect", "sd"))
+gen str24 variable = word("USD/IDR TB Flows Cadangan", eq)
+gen str24 unit = ""
+replace unit = cond("$model_mode" == "changes", "% perubahan", "100*log level") if inlist(eq, 1, 4)
+replace unit = "USD bn" if eq == 2
+* flows dalam model = Rp10 tn -> Rp tn
+foreach v in effect sd {
+	replace `v' = `v'*10 if eq == 3
+}
+replace unit = "Rp tn" if eq == 3
+gen double lo90 = effect - invnormal(0.95)*sd
+gen double hi90 = effect + invnormal(0.95)*sd
+gen str24 conclusion = cond(lo90 > 0 | hi90 < 0, "berbeda dari nol (90%)", "tidak jelas (interval meliputi 0)")
+drop eq
+order variable unit effect sd lo90 hi90 conclusion
+format effect sd lo90 hi90 %8.3f
+list, noobs clean
+save "$data\dxy_effect.dta", replace
+bv_out diag "D6_dxy_effect"
 
 **## 6.5 Grafik: fan chart baseline + median skenario, dengan riwayat 24 bulan
 use "$data\scenario_spot.dta", clear
@@ -180,7 +203,7 @@ twoway (rarea lower951 upper951 mdate, color("24 90 141%10") lwidth(none)) ///
 	(line median3 mdate, lcolor("35 114 74") lwidth(medthick) lpattern(shortdash)) ///
 	(line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)), ///
 	xline($final_origin, lcolor(gs10) lpattern(dot)) ///
-	title("USD/IDR: proyeksi bersyarat pada jalur skenario (model $final_mode)", size(medium)) ///
+	title("USD/IDR: proyeksi bersyarat pada jalur skenario (model $model_mode)", size(medium)) ///
 	subtitle("Band baseline 80% dan 95%; anchor `anch'", size(small)) ///
 	xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
 	legend(order(3 "Aktual" 4 "Baseline" 5 "Adverse" 6 "Upside" 7 "Severe Adverse" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
@@ -307,8 +330,21 @@ forval i = 1/`=_N' {
 }
 twoway scatteri 0 0 100 100, msymbol(none) xscale(off range(0 120)) yscale(off range(0 100)) ///
 	xlabel(none) ylabel(none) `txt' ///
-	yline(80, lcolor(gs10)) title("Ringkasan skenario USD/IDR (model $final_mode, anchor Sep-26 = `=strtrim(string($anchor_spot, "%9.0fc"))')", size(medium)) ///
+	yline(80, lcolor(gs10)) title("Ringkasan skenario USD/IDR (model $model_mode, anchor Sep-26 = `=strtrim(string($anchor_spot, "%9.0fc"))')", size(medium)) ///
 	note("TB dan flows pada Adverse/Upside/Severe Adverse = median Baseline +/- shock (00_master.do). Rentang = interval prediktif 80%.", size(vsmall)) ///
 	graphregion(color(white)) plotregion(style(none)) xsize(13) ysize(4) legend(off) name(scen_table, replace)
 graph save "$gph\6_scenario_table.gph", replace
 graph export "$fig\6_scenario_table.png", replace width(2600)
+
+**## 6.8 Tabel PNG: forecast bulanan USD/IDR per skenario (median [rentang 80%])
+use "$data\scenario_spot.dta", clear
+keep scenario mdate median lower80 upper80
+gen str32 cell = strtrim(string(median, "%9.0fc")) + "  [" + strtrim(string(lower80, "%9.0fc")) + " - " + strtrim(string(upper80, "%9.0fc")) + "]"
+keep scenario mdate cell
+reshape wide cell, i(mdate) j(scenario)
+gen str12 bulan = string(mdate, "%tmMon_CCYY")
+sort mdate
+bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\6_forecast_table.png") ///
+	title("Forecast USD/IDR per skenario: median [rentang 80%] (model $model_mode, anchor Sep 2026 = `=strtrim(string($anchor_spot, "%9.0fc"))')") ///
+	heads("Bulan" "Baseline" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
+	note("Asumsi skenario: lihat 6_scenario_macro.png dan 6_scenario_table.png. Rentang = interval prediktif 80% (posterior predictive).")

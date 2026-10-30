@@ -1,0 +1,2755 @@
+------------------------------------------------------------------------------------------------------------------------
+      name:  main
+       log:  C:\Users\LENOVO05\github\Simulasi-Rupiah\output\run_log.log
+  log type:  text
+ opened on:  30 Oct 2026, 14:31:33
+
+. di "Mulai: `c(current_date)' `c(current_time)'  profile=$profile  include_ust=$include_ust"
+Mulai: 30 Oct 2026 14:31:33  profile=standard  include_ust=0
+
+. timer clear 1
+
+. timer on 1
+
+. 
+. *****************************
+. ******** Run modules ********
+. *****************************
+. 
+. * 01: impor dan audit database, unit root, deskriptif
+. do "$script\01_import_audit.do"
+
+. **# 1. IMPOR DAN AUDIT DATABASE
+. * Rmd: chunk impor-database, audit-flow-dan-deskriptif, unit-root-opsional.
+. * Menulis: intermediate/database.dta, flow_components.dta, sources.dta, rating_events.dta,
+. *          audit_missing.dta, descriptive.dta, unit_root.dta
+. * Output:  tables/A0_*, T1_descriptive; diagnostics/D1_audit_missing, D2_unit_root_adf;
+. *          figures/1_data_series.png
+. 
+. **## 1.1 Sheet pendukung
+. cap import excel using "$data_file", sheet("sources") firstrow allstring clear
+
+. if _rc {
+.         di as error "Tidak dapat membaca $data_file. Tutup file di Excel lalu jalankan ulang."
+.         exit 603
+. }
+
+. save "$data\sources.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\sources.dta saved
+
+. bv_out tab "A0_sources"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/A0_sources.csv saved
+
+. 
+. import excel using "$data_file", sheet("rating_events") firstrow clear
+(9 vars, 12 obs)
+
+. save "$data\rating_events.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\rating_events.dta saved
+
+. bv_out tab "A0_rating_events"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/A0_rating_events.csv saved
+
+. 
+. import excel using "$data_file", sheet("flow_components") firstrow clear
+(8 vars, 165 obs)
+
+. sort year month
+
+. save "$data\flow_components.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\flow_components.dta saved
+
+. 
+. **## 1.2 Sheet database_monthly dan pemeriksaan struktur
+. import excel using "$data_file", sheet("database_monthly") firstrow clear
+(25 vars, 165 obs)
+
+. foreach v in year month mdate usdidr trade_bal_usdbn net_flows_idrtn fx_reserves_usdbn dxy ust10y_pct core_complete {
+  2.         confirm numeric variable `v'
+  3. }
+
+. sort mdate
+
+. isid mdate
+
+. assert mdate - mdate[_n-1] == 1 if _n > 1
+
+. assert inrange(month, 1, 12)
+
+. assert mdate == ym(year, month)
+
+. format mdate %tm
+
+. tsset mdate, monthly
+
+Time variable: mdate, 2013m1 to 2026m9
+        Delta: 1 month
+
+. 
+. * core_complete harus sama dengan kelengkapan lima variabel inti
+. global core "usdidr trade_bal_usdbn net_flows_idrtn fx_reserves_usdbn dxy"
+
+. egen byte _nmiss = rowmiss($core)
+
+. gen byte complete_check = _nmiss == 0
+
+. drop _nmiss
+
+. assert core_complete == complete_check
+
+. assert usdidr > 0 & dxy > 0 & fx_reserves_usdbn > 0
+
+. 
+. * Flows gabungan = saham + SBN + SRBI (sheet flow_components)
+. merge 1:1 year month using "$data\flow_components.dta", keepusing(flow_saham_idrtn flow_sbn_idrtn flow_srbi_idrtn) ass
+> ert(match) nogen
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                               165  
+    -----------------------------------------
+
+. sort mdate
+
+. gen double _fsum = flow_saham_idrtn + flow_sbn_idrtn + flow_srbi_idrtn
+
+. assert abs(_fsum - net_flows_idrtn) < 1e-8
+
+. drop _fsum
+
+. 
+. * Audit missing pada variabel database mentah (September 2026 tidak memiliki ekspor/impor;
+. * sengaja tidak diisi nol atau interpolasi)
+. tempname pm
+
+. postfile `pm' str32 variable missing using "$data\audit_missing.dta", replace
+
+. foreach v of varlist _all {
+  2.         qui count if missing(`v')
+  3.         if r(N) > 0 post `pm' ("`v'") (r(N))
+  4. }
+
+. postclose `pm'
+
+. preserve
+
+.         use "$data\audit_missing.dta", clear
+
+.         list, noobs clean
+
+           variable   missing  
+    trade_bal_usdbn         1  
+      exports_usdbn         1  
+      imports_usdbn         1  
+
+.         bv_out diag "D1_audit_missing"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D1_audit_missing.csv saved
+
+. restore
+
+. 
+. * Bulan lengkap terakhir (cutoff fit akhir) dan bulan pasar terakhir (anchor forecast akhir)
+. qui sum mdate if complete_check == 1
+
+. global latest_complete = r(max)
+
+. qui sum mdate if !missing(usdidr, dxy)
+
+. global final_origin = r(max)
+
+. di "Bulan lengkap terakhir: " %tm $latest_complete "   anchor pasar terakhir: " %tm $final_origin
+Bulan lengkap terakhir:  2026m8   anchor pasar terakhir:  2026m9
+
+. 
+. **## 1.3 Transformasi model (Rmd: make_data)
+. * levels: 100 log USD/IDR, TB, flows/10, 100 log cadangan; eksogen 100 log DXY
+. gen double y_s     = 100*ln(usdidr)
+
+. gen double y_tb    = trade_bal_usdbn
+(1 missing value generated)
+
+. gen double y_flows = net_flows_idrtn/10
+
+. gen double y_res   = 100*ln(fx_reserves_usdbn)
+
+. gen double x_dxy   = 100*ln(dxy)
+
+. * changes: perubahan log USD/IDR, cadangan, DXY; TB dan flows tetap
+. gen double dy_s    = D.y_s
+(1 missing value generated)
+
+. gen double dy_res  = D.y_res
+(1 missing value generated)
+
+. gen double dx_dxy  = D.x_dxy
+(1 missing value generated)
+
+. gen double x_ust   = ust10y_pct
+
+. gen double sin12   = sin(2*_pi*month/12)
+
+. gen double cos12   = cos(2*_pi*month/12)
+
+. gen date = dofm(mdate)
+
+. format date %td
+
+. label var y_s "100 log USD/IDR"
+
+. label var y_tb "Trade balance (USD bn)"
+
+. label var y_flows "Flows gabungan (Rp10 tn)"
+
+. label var y_res "100 log cadangan valas"
+
+. label var x_dxy "100 log DXY"
+
+. save "$data\database.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\database.dta saved
+
+. 
+. **## 1.4 Statistik deskriptif lima variabel inti
+. tempname ph
+
+. postfile `ph' str24 variable n mean sd min max using "$data\descriptive.dta", replace
+
+. foreach v of global core {
+  2.         qui sum `v'
+  3.         post `ph' ("`v'") (r(N)) (r(mean)) (r(sd)) (r(min)) (r(max))
+  4. }
+
+. postclose `ph'
+
+. preserve
+
+.         use "$data\descriptive.dta", clear
+
+.         list, noobs clean
+
+             variable     n       mean         sd         min        max  
+               usdidr   165   14219.34    1735.14        9664      18000  
+      trade_bal_usdbn   164   1.450809   1.949667     -2.3311     7.5785  
+      net_flows_idrtn   165   5.517091   26.78869   -120.0208   82.60049  
+    fx_reserves_usdbn   165   117.2237   13.00517    85.91298    140.338  
+                  dxy   165   96.06127    7.28911      79.207    112.117  
+
+.         bv_out tab "T1_descriptive"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T1_descriptive.csv saved
+
+. restore
+
+. 
+. **## 1.5 Grafik empat seri inti
+. local gopt "xtitle("") graphregion(color(white)) xlabel(, format(%tmCY))"
+
+. tsline usdidr, title("USD/IDR", size(medium)) ytitle("IDR/USD") `gopt' name(g1, replace) nodraw
+
+. tsline trade_bal_usdbn, title("Trade balance", size(medium)) ytitle("USD bn") `gopt' name(g2, replace) nodraw
+
+. twoway spike net_flows_idrtn mdate, title("Combined flows", size(medium)) ytitle("IDR tn") `gopt' name(g3, replace) no
+> draw
+
+. tsline fx_reserves_usdbn, title("Foreign currency reserves", size(medium)) ytitle("USD bn") `gopt' name(g4, replace) n
+> odraw
+
+. graph combine g1 g2 g3 g4, cols(2) graphregion(color(white)) name(data_series, replace)
+
+. graph save "$gph\1_data_series.gph", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\1_data_series.gph saved
+
+. graph export "$fig\1_data_series.png", replace width(1800)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\1_data_series.png saved as PNG format
+
+. 
+. **## 1.6 Unit root (ADF), sampel 2014+ dengan data inti lengkap
+. * Lag ADF 0-6 dipilih dengan BIC pada sampel yang sama (setara ur.df selectlags="BIC").
+. * H0 = unit root. Bukan aturan otomatis untuk mendiferensiasi; tidak membuktikan kointegrasi.
+. * Dilewati jika global run_adf = 0 (lihat 00_master.do).
+. if $run_adf {
+. preserve
+.         keep if year >= 2014 & complete_check == 1
+.         tsset mdate, monthly
+.         gen double l_usdidr = ln(usdidr)
+.         gen double l_res = ln(fx_reserves_usdbn)
+.         gen double l_dxy = ln(dxy)
+.         gen double d_l_usdidr = D.l_usdidr
+.         gen double d_l_res = D.l_res
+.         gen double d_l_dxy = D.l_dxy
+.         tempname pu
+.         postfile `pu' str16 series str8 det lags N tau pvalue using "$data\unit_root.dta", replace
+.         * level dengan trend; perubahan/arus dengan konstanta saja
+.         foreach spec in "l_usdidr trend" "d_l_usdidr drift" "l_res trend" "d_l_res drift" ///
+>                 "l_dxy trend" "d_l_dxy drift" "trade_bal_usdbn drift" "net_flows_idrtn drift" {
+  2.                 gettoken v det : spec
+  3.                 local det = strtrim("`det'")
+  4.                 local tr = cond("`det'" == "trend", "_trend", "")
+  5.                 cap drop _trend
+  6.                 gen _trend = _n
+  7.                 * sampel bersama untuk semua lag (lag maksimum 6)
+.                 qui reg D.`v' L.`v' `tr' L(1/6)D.`v'
+  8.                 tempvar s
+  9.                 gen byte `s' = e(sample)
+ 10.                 local best 0
+ 11.                 local bic_best .
+ 12.                 forval k = 0/6 {
+ 13.                         if `k' == 0 qui reg D.`v' L.`v' `tr' if `s'
+ 14.                         else qui reg D.`v' L.`v' `tr' L(1/`k')D.`v' if `s'
+ 15.                         local bic = -2*e(ll) + e(rank)*ln(e(N))
+ 16.                         if `bic' < `bic_best' {
+ 17.                                 local bic_best = `bic'
+ 18.                                 local best = `k'
+ 19.                         }
+ 20.                 }
+ 21.                 qui dfuller `v', `det' lags(`best')
+ 22.                 post `pu' ("`v'") ("`det'") (`best') (r(N)) (r(Zt)) (r(p))
+ 23.         }
+.         postclose `pu'
+.         use "$data\unit_root.dta", clear
+.         gen str24 conclusion = cond(pvalue < 0.05, "tolak H0 (stasioner)", "gagal tolak H0 (unit root)")
+.         format tau pvalue %8.3f
+.         list, noobs clean
+.         bv_out diag "D2_unit_root_adf"
+. restore
+. }
+
+. 
+end of do-file
+
+. * 02: fungsi Mata BVARX (estimasi, draw, conditional forecast, backtest)
+. do "$script\02_bvarx_functions.do"
+
+. **# 2. FUNGSI MATA BVARX
+. * Rmd: chunk fungsi-estimasi, fungsi-jalur-dan-kondisi, fungsi-backtest, bootstrap-error.
+. * Hanya mendefinisikan fungsi (tidak menulis file). Jalankan sebelum 03-07.
+. *
+. * Model (setelah standardisasi dengan data training saja):
+. *   Y = Z C + U,  Sigma ~ IW(S0, nu0),  C | Sigma ~ MN(C0, V0, Sigma)
+. *   Z = [1, lag 1..p dari y, eksogen x];  y = (100 log S, TB, F/10, 100 log R)
+. *   x = (100 log DXY, [UST10Y], sin12, cos12)
+. * Prior Minnesota-style konjugat; posterior draws independen (tanpa MCMC).
+. * Conditional forecast (Waggoner-Zha, hard conditions pada observabel) dengan
+. * importance weight = density kondisi, lalu resampling. ESS dilaporkan.
+. 
+. cap program drop bv_score
+
+. mata: mata clear
+
+. 
+. **## 2.1 Struktur data dan helper
+. mata:
+------------------------------------------------- mata (type end to exit) ----------------------------------------------
+: mata set matastrict on
+
+: 
+: struct bvdata {
+>         real colvector mdate, usdidr, dxy, ust
+>         real matrix Y, Xall
+>         string scalar mode
+> }
+
+: 
+: struct bvfit {
+>         real matrix Cn, Vn, LV, Sn, hist, resid
+>         real rowvector my, sy, mx, sx, xc
+>         real colvector idx
+>         real scalar nu, K, p, M, n, cutoff, start_year, lambda, last_spot
+>         string scalar mode
+> }
+
+: 
+: struct bvfut {
+>         real colvector times, dxy, ust
+>         real matrix X, cond
+>         real scalar origin, h
+> }
+
+: 
+: struct bvpred {
+>         real matrix paths, spot, cond
+>         real colvector w, times
+>         real scalar ess, ndraw, root_gt1, root_gt105
+> }
+
+: 
+: // Muat data dari dataset Stata di memori (database.dta). mode = "levels" | "changes"
+: struct bvdata scalar bv_load(string scalar mode)
+> {
+>         struct bvdata scalar d
+>         if (mode != "levels" & mode != "changes") _error("mode harus levels atau changes")
+>         d.mode   = mode
+>         d.mdate  = st_data(., "mdate")
+>         d.usdidr = st_data(., "usdidr")
+>         d.dxy    = st_data(., "dxy")
+>         d.ust    = st_data(., "x_ust")
+>         if (mode == "levels") {
+>                 d.Y    = st_data(., ("y_s", "y_tb", "y_flows", "y_res"))
+>                 d.Xall = st_data(., ("x_dxy", "x_ust", "sin12", "cos12"))
+>         }
+>         else {
+>                 d.Y    = st_data(., ("dy_s", "y_tb", "y_flows", "dy_res"))
+>                 d.Xall = st_data(., ("dx_dxy", "x_ust", "sin12", "cos12"))
+>         }
+>         if (any((d.mdate[|2 \ rows(d.mdate)|] - d.mdate[|1 \ rows(d.mdate)-1|]) :!= 1)) {
+>                 _error("mdate harus berurutan tanpa celah")
+>         }
+>         return(d)
+> }
+
+: 
+: // Baris data untuk bulan m (mdate %tm)
+: real scalar bv_row(struct bvdata scalar d, real scalar m)
+> {
+>         real scalar r
+>         r = m - d.mdate[1] + 1
+>         if (r < 1 | r > rows(d.mdate)) _error("bulan di luar data: " + strofreal(m))
+>         return(r)
+> }
+
+: 
+: // Quantile tipe 7 (default R) untuk tiap kolom X
+: real matrix bv_quantile(real matrix X, real rowvector probs)
+> {
+>         real matrix Q
+>         real colvector x
+>         real scalar j, k, n, h, lo
+>         n = rows(X)
+>         Q = J(cols(probs), cols(X), .)
+>         for (j = 1; j <= cols(X); j++) {
+>                 x = sort(X[., j], 1)
+>                 for (k = 1; k <= cols(probs); k++) {
+>                         h  = (n - 1)*probs[k] + 1
+>                         lo = floor(h)
+>                         Q[k, j] = lo >= n ? x[n] : x[lo] + (h - lo)*(x[lo+1] - x[lo])
+>                 }
+>         }
+>         return(Q)
+> }
+
+: 
+: // Standar deviasi sampel (pembagi n-1)
+: real scalar bv_sd(real colvector x)
+> {
+>         return(sqrt(variance(x)))
+> }
+
+: 
+: // Simpan matriks R ke dataset Stata baru (mengganti data di memori)
+: void bv_tostata(real matrix R, string rowvector names)
+> {
+>         real scalar j
+>         stata("clear")
+>         st_addobs(rows(R))
+>         for (j = 1; j <= cols(names); j++) (void) st_addvar("double", names[j])
+>         st_store(., names, R)
+> }
+
+: end
+------------------------------------------------------------------------------------------------------------------------
+
+. 
+. **## 2.2 Estimasi posterior (Rmd: fit_bvar)
+. mata:
+------------------------------------------------- mata (type end to exit) ----------------------------------------------
+: // soc = 0: prior manual saja. soc > 0: tambah dummy sum-of-coefficients dan
+: // dummy-initial-observation (Doan-Litterman-Sims; Sims-Zha 1998) dengan tightness mu = delta = soc.
+: // Dummy menahan tarikan ke rata-rata sampel (spurious mean reversion) pada model level.
+: struct bvfit scalar bv_fit(struct bvdata scalar d, real scalar cutoff, real scalar start_year,
+>         real scalar p, real scalar lambda, real scalar inc_ust, real scalar soc)
+> {
+>         struct bvfit scalar f
+>         real colvector idx, good, r, yj
+>         real rowvector own, v0, arvar, ybar, xbar, zr
+>         real matrix Y0, X0, Ys, Xs, Z, C0, V0i, E, D, S0, Xr, Yd, Zd, Ya, Za, Ea
+>         real scalar K, i, j, l, T, nu0, last
+> 
+>         K = cols(d.Y)
+>         f.xc = inc_ust ? (1, 2, 3, 4) : (1, 3, 4)
+>         idx = selectindex(d.mdate :>= 12*(start_year - 1960) :& d.mdate :<= cutoff)
+>         idx = select(idx, idx :> p)
+>         good = J(rows(idx), 1, 0)
+>         for (i = 1; i <= rows(idx); i++) {
+>                 good[i] = !hasmissing(d.Y[|idx[i]-p, 1 \ idx[i], K|]) & !hasmissing(d.Xall[idx[i], f.xc])
+>         }
+>         idx = select(idx, good)
+>         T = rows(idx)
+>         if (T < 36) _error("sampel training < 36 bulan")
+>         if (d.mdate[idx[T]] != cutoff) _error("observasi terakhir training tidak sama dengan cutoff")
+>         if (any((idx[|2 \ T|] - idx[|1 \ T-1|]) :!= 1)) _error("sampel training tidak berurutan")
+> 
+>         Y0 = d.Y[idx, .]
+>         f.my = mean(Y0)
+>         f.sy = sqrt(diagonal(variance(Y0)))'
+>         X0 = d.Xall[idx, f.xc]
+>         f.mx = mean(X0)
+>         f.sx = sqrt(diagonal(variance(X0)))'
+>         if (any(f.sy :<= 0) | any(f.sx :<= 0)) _error("variabel konstan pada sampel training")
+>         Ys = (Y0 :- f.my) :/ f.sy
+>         Xs = (X0 :- f.mx) :/ f.sx
+>         Z = J(T, 1, 1)
+>         for (l = 1; l <= p; l++) Z = Z, ((d.Y[idx :- l, .] :- f.my) :/ f.sy)
+>         Z = Z, Xs
+> 
+>         // Varians innovation AR(1) per variabel, training saja
+>         arvar = J(1, K, .)
+>         for (j = 1; j <= K; j++) {
+>                 yj = Ys[|2, j \ T, j|]
+>                 Xr = J(T-1, 1, 1), Ys[|1, j \ T-1, j|]
+>                 r  = yj - Xr*(invsym(cross(Xr, Xr))*cross(Xr, yj))
+>                 arvar[j] = max((mean(r:^2), 1e-4))
+>         }
+> 
+>         // Prior: mean own first lag = 1 untuk level (log kurs, log cadangan), 0 lainnya
+>         f.M = cols(Z)
+>         C0  = J(f.M, K, 0)
+>         own = d.mode == "levels" ? (1, 0, 0, 1) : J(1, K, 0)
+>         for (j = 1; j <= K; j++) C0[1+j, j] = own[j]
+>         v0 = 100
+>         for (l = 1; l <= p; l++) v0 = v0, lambda^2 :/ (l^2 :* arvar)
+>         v0 = v0, J(1, cols(f.xc), 0.5^2)
+>         V0i = diag(1 :/ v0)
+> 
+>         // Dummy observations (hanya model level): ybar = rata-rata p observasi pra-sampel
+>         Ya = Ys
+>         Za = Z
+>         if (soc > 0 & d.mode == "levels") {
+>                 ybar = mean((d.Y[|idx[1]-p, 1 \ idx[1]-1, K|] :- f.my) :/ f.sy)
+>                 xbar = mean(Xs[|1, 1 \ p, cols(Xs)|])
+>                 Yd = diag(ybar/soc)
+>                 Zd = J(K, 1, 0)
+>                 for (l = 1; l <= p; l++) Zd = Zd, diag(ybar/soc)
+>                 Zd = Zd, J(K, cols(Xs), 0)
+>                 zr = 1/soc
+>                 for (l = 1; l <= p; l++) zr = zr, ybar/soc
+>                 zr = zr, xbar/soc
+>                 Ya = Ys \ Yd \ (ybar/soc)
+>                 Za = Z \ Zd \ zr
+>         }
+> 
+>         f.Vn = cholinv(V0i + cross(Za, Za))
+>         f.Vn = (f.Vn + f.Vn')/2
+>         f.Cn = f.Vn*(V0i*C0 + cross(Za, Ya))
+>         E  = Ys - Z*f.Cn
+>         Ea = Ya - Za*f.Cn
+>         D = f.Cn - C0
+>         nu0 = K + 2
+>         S0 = diag(arvar*(nu0 - K - 1))
+>         f.Sn = S0 + cross(Ea, Ea) + D'*V0i*D
+>         f.Sn = (f.Sn + f.Sn')/2
+>         f.LV = cholesky(f.Vn)
+> 
+>         last = idx[T]
+>         f.hist = (d.Y[|last-p+1, 1 \ last, K|] :- f.my) :/ f.sy
+>         f.nu = nu0 + rows(Ya)
+>         f.K = K
+>         f.p = p
+>         f.n = T
+>         f.idx = idx
+>         f.cutoff = cutoff
+>         f.start_year = start_year
+>         f.lambda = lambda
+>         f.mode = d.mode
+>         f.last_spot = d.usdidr[last]
+>         f.resid = E :* f.sy
+>         return(f)
+> }
+
+: 
+: // Satu draw posterior: Sigma ~ IW(Sn, nu) lewat Bartlett, C | Sigma ~ MN(Cn, Vn, Sigma)
+: void bv_draw(struct bvfit scalar f, real matrix C, real matrix Sigma)
+> {
+>         real matrix L, A, LA
+>         real scalar i, j
+>         L = cholesky(cholinv(f.Sn))
+>         A = J(f.K, f.K, 0)
+>         for (i = 1; i <= f.K; i++) {
+>                 A[i, i] = sqrt(rchi2(1, 1, f.nu - i + 1))
+>                 for (j = 1; j < i; j++) A[i, j] = rnormal(1, 1, 0, 1)
+>         }
+>         LA = L*A
+>         Sigma = cholinv(LA*LA')
+>         Sigma = (Sigma + Sigma')/2
+>         C = f.Cn + f.LV*rnormal(f.M, f.K, 0, 1)*cholesky(Sigma)'
+> }
+
+: end
+------------------------------------------------------------------------------------------------------------------------
+
+. 
+. **## 2.3 Jalur masa depan dan conditional forecast (Rmd: make_future, forecast_system, predict_paths)
+. mata:
+------------------------------------------------- mata (type end to exit) ----------------------------------------------
+: // Jalur eksogen dari cutoff+1 sampai origin+h. DXY menuju (1+g) pada akhir horizon, UST +du.
+: // Bulan s/d origin memakai realisasi DXY/UST dan USD/IDR sebagai kondisi bridge.
+: struct bvfut scalar bv_future(struct bvfit scalar f, struct bvdata scalar d, real scalar origin,
+>         real scalar h, real scalar g, real scalar du)
+> {
+>         struct bvfut scalar u
+>         real colvector frac, known, logdxy, xd, mon, ix
+>         real scalar r0, H, i
+>         real matrix Xall
+>         if (origin < f.cutoff | h < 1) _error("origin harus >= cutoff dan h >= 1")
+>         u.origin = origin
+>         u.h = h
+>         u.times = ((f.cutoff + 1) :: (origin + h))
+>         H = rows(u.times)
+>         r0 = bv_row(d, origin)
+>         if (missing(d.dxy[r0])) _error("DXY tidak tersedia pada origin")
+>         frac  = ((u.times :- origin) :* (u.times :> origin)) / h
+>         u.dxy = d.dxy[r0] :* (1 + g):^frac
+>         u.ust = d.ust[r0] :+ du :* frac
+>         known = u.times :<= origin
+>         ix = J(0, 1, .)
+>         for (i = 1; i <= H; i++) {
+>                 if (known[i]) {
+>                         u.dxy[i] = d.dxy[bv_row(d, u.times[i])]
+>                         u.ust[i] = d.ust[bv_row(d, u.times[i])]
+>                         ix = ix \ i
+>                 }
+>         }
+>         logdxy = 100*ln(u.dxy)
+>         if (f.mode == "changes") {
+>                 xd = logdxy - ((100*ln(d.dxy[bv_row(d, f.cutoff)])) \ logdxy[|1 \ H|])[|1 \ H|]
+>         }
+>         else xd = logdxy
+>         mon = mod(u.times, 12) :+ 1
+>         Xall = xd, u.ust, sin(2*pi()*mon/12), cos(2*pi()*mon/12)
+>         u.X = Xall[., f.xc]
+>         // Kondisi: kolom (step, variabel 1..4, nilai). Bridge USD/IDR teramati.
+>         u.cond = J(0, 3, .)
+>         for (i = 1; i <= rows(ix); i++) {
+>                 u.cond = u.cond \ (ix[i], 1, d.Y[bv_row(d, u.times[ix[i]]), 1])
+>         }
+>         return(u)
+> }
+
+: 
+: // Mean jalur (standar) dan matriks G (Y_f = mu + G z) untuk satu draw parameter
+: void bv_system(struct bvfit scalar f, real matrix C, real matrix Sigma, real matrix Xs,
+>         real colvector mu, real matrix G, real scalar root)
+> {
+>         real matrix hist, mus, Acat, Psi, L, a, comp
+>         real rowvector z
+>         real scalar K, p, H, h, j, l
+>         K = f.K
+>         p = f.p
+>         H = rows(Xs)
+>         hist = f.hist
+>         mus = J(H, K, .)
+>         for (h = 1; h <= H; h++) {
+>                 z = 1
+>                 for (l = 1; l <= p; l++) z = z, hist[rows(hist)-l+1, .]
+>                 z = z, Xs[h, .]
+>                 mus[h, .] = z*C
+>                 hist = hist \ mus[h, .]
+>         }
+>         // A_l = (blok koefisien lag l)'; disusun [A_1, ..., A_p]
+>         Acat = J(K, 0, .)
+>         for (l = 1; l <= p; l++) Acat = Acat, C[|1+(l-1)*K+1, 1 \ 1+l*K, K|]'
+>         // Koefisien MA: psi_0 = I, psi_j = sum_l A_l psi_{j-l}; disimpan berdampingan
+>         Psi = I(K), J(K, K*(H-1), 0)
+>         for (j = 1; j <= H-1; j++) {
+>                 a = J(K, K, 0)
+>                 for (l = 1; l <= min((p, j)); l++) {
+>                         a = a + Acat[|1, (l-1)*K+1 \ K, l*K|]*Psi[|1, (j-l)*K+1 \ K, (j-l+1)*K|]
+>                 }
+>                 Psi[|1, j*K+1 \ K, (j+1)*K|] = a
+>         }
+>         L = cholesky(Sigma)
+>         G = J(H*K, H*K, 0)
+>         for (h = 1; h <= H; h++) {
+>                 for (j = 1; j <= h; j++) {
+>                         G[|(h-1)*K+1, (j-1)*K+1 \ h*K, j*K|] = Psi[|1, (h-j)*K+1 \ K, (h-j+1)*K|]*L
+>                 }
+>         }
+>         mu = vec(mus')
+>         // Akar companion terbesar: diagnostik, bukan filter draw
+>         if (p == 1) comp = Acat
+>         else comp = Acat \ (I(K*(p-1)), J(K*(p-1), K, 0))
+>         root = max(abs(eigenvalues(comp)))
+> }
+
+: 
+: // Simulasi jalur bersyarat. extra = kondisi tambahan (step, var, nilai) dalam satuan model.
+: struct bvpred scalar bv_predict(struct bvfit scalar f, struct bvfut scalar u, real scalar ndraw,
+>         real matrix extra, real scalar seed)
+> {
+>         struct bvpred scalar pr
+>         real matrix cond, Xs, C, Sigma, G, RG, Q, Qi, paths, S, Ym
+>         real colvector pos, target, logw, roots, mu, z, delta, yf, cw, uu, keep, w
+>         real rowvector sy_c, my_c
+>         real scalar K, H, b, npos, root, i, k, ldq
+> 
+>         rseed(seed)
+>         K = f.K
+>         H = rows(u.times)
+>         cond = u.cond \ extra
+>         npos = rows(cond)
+>         if (npos) {
+>                 if (any(cond[., 1] :< 1) | any(cond[., 1] :> H)) _error("step kondisi di luar horizon")
+>                 if (hasmissing(cond)) _error("nilai kondisi tidak lengkap")
+>                 pos = (cond[., 1] :- 1)*K + cond[., 2]
+>                 if (rows(uniqrows(pos)) != npos) _error("kondisi ganda pada step/variabel yang sama")
+>                 my_c = f.my[cond[., 2]']
+>                 sy_c = f.sy[cond[., 2]']
+>                 target = (cond[., 3] - my_c') :/ sy_c'
+>         }
+>         Xs = (u.X :- f.mx) :/ f.sx
+>         paths = J(ndraw, H*K, .)
+>         logw  = J(ndraw, 1, 0)
+>         roots = J(ndraw, 1, .)
+>         for (b = 1; b <= ndraw; b++) {
+>                 bv_draw(f, C, Sigma)
+>                 bv_system(f, C, Sigma, Xs, mu, G, root)
+>                 z = rnormal(H*K, 1, 0, 1)
+>                 if (npos) {
+>                         RG = G[pos, .]
+>                         Q  = RG*RG'
+>                         Qi = cholinv(Q)
+>                         delta = target - mu[pos]
+>                         ldq = 2*sum(ln(diagonal(cholesky(Q))))
+>                         logw[b] = -0.5*(npos*ln(2*pi()) + ldq + delta'*Qi*delta)
+>                         z = z + RG'*(Qi*(delta - RG*z))
+>                 }
+>                 yf = mu + G*z
+>                 Ym = rowshape(yf, H) :* f.sy :+ f.my
+>                 paths[b, .] = rowshape(Ym, 1)
+>                 roots[b] = root
+>         }
+>         if (hasmissing(paths) | hasmissing(logw)) _error("jalur atau bobot tidak finite")
+>         w = exp(logw :- max(logw))
+>         w = w / sum(w)
+>         pr.ess = 1/sum(w:^2)
+>         // Resampling sistematis-berurut sesuai bobot (campuran parameter conditional)
+>         cw = runningsum(w)
+>         uu = sort(runiform(ndraw, 1), 1)
+>         keep = J(ndraw, 1, .)
+>         k = 1
+>         for (i = 1; i <= ndraw; i++) {
+>                 while (k < ndraw & cw[k] < uu[i]) k++
+>                 keep[i] = k
+>         }
+>         keep = keep[order(runiform(ndraw, 1), 1)]
+>         paths = paths[keep, .]
+>         for (i = 1; i <= npos; i++) {
+>                 if (max(abs(paths[., pos[i]] :- cond[i, 3])) > 1e-6) _error("kondisi tidak terpenuhi")
+>         }
+>         S = paths[., (0..(H-1))*K :+ 1]
+>         if (f.mode == "changes") {
+>                 // akumulasi perubahan log dari spot pada cutoff
+>                 S = S*(lowertriangle(J(H, H, 1)))' :+ 100*ln(f.last_spot)
+>         }
+>         pr.paths = paths
+>         pr.spot = exp(S/100)
+>         pr.w = w
+>         pr.ndraw = ndraw
+>         pr.root_gt1 = sum(w :* (roots :> 1))
+>         pr.root_gt105 = sum(w :* (roots :> 1.05))
+>         pr.times = u.times
+>         pr.cond = cond
+>         return(pr)
+> }
+note: variable C may be used before set.
+note: variable Sigma may be used before set.
+note: variable G may be used before set.
+note: variable mu may be used before set.
+note: variable root may be used before set.
+
+: 
+: // Ringkasan spot per step: (mdate, lower95, lower80, median, upper80, upper95, ess, ess_ratio)
+: real matrix bv_summary(struct bvpred scalar pr, real rowvector steps)
+> {
+>         real matrix Q
+>         Q = bv_quantile(pr.spot[., steps], (0.025, 0.10, 0.5, 0.90, 0.975))'
+>         return((pr.times[steps'], Q, J(cols(steps), 1, pr.ess), J(cols(steps), 1, pr.ess/pr.ndraw)))
+> }
+
+: 
+: // Median jalur variabel j pada step s (satuan model)
+: real scalar bv_median_path(struct bvpred scalar pr, real scalar s, real scalar j, real scalar K)
+> {
+>         return(bv_quantile(pr.paths[., (s-1)*K + j], 0.5))
+> }
+
+: end
+------------------------------------------------------------------------------------------------------------------------
+
+. 
+. **## 2.4 Backtest dan bootstrap (Rmd: run_backtest, relative_rmse_ci)
+. mata:
+------------------------------------------------- mata (type end to exit) ----------------------------------------------
+: // Untuk tiap origin r: fit sampai r - release_lag, bridge USD/IDR sampai r, forecast h.
+: // Kolom keluaran: lihat bv_bt_names().
+: real matrix bv_backtest(struct bvdata scalar d, real scalar start_year, real scalar p,
+>         real scalar lambda, real scalar inc_ust, real colvector origins, real scalar ndraw,
+>         real scalar seed_base, real scalar rlag, real rowvector hz, real scalar soc)
+> {
+>         struct bvfit scalar f
+>         struct bvfut scalar u
+>         struct bvpred scalar pr
+>         real matrix R, q
+>         real rowvector steps
+>         real colvector actual, hist, hcol
+>         real scalar o, origin, base, sig, r0, i
+>         R = J(0, 16, .)
+>         hcol = hz'
+>         for (o = 1; o <= rows(origins); o++) {
+>                 origin = origins[o]
+>                 f  = bv_fit(d, origin - rlag, start_year, p, lambda, inc_ust, soc)
+>                 u  = bv_future(f, d, origin, max(hz), 0, 0)
+>                 pr = bv_predict(f, u, ndraw, J(0, 3, .), seed_base + origin)
+>                 steps = origin :+ hz :- f.cutoff
+>                 q  = bv_quantile(pr.spot[., steps], (0.025, 0.10, 0.5, 0.90, 0.975))'
+>                 r0 = bv_row(d, origin)
+>                 base = d.usdidr[r0]
+>                 actual = J(cols(hz), 1, .)
+>                 for (i = 1; i <= cols(hz); i++) actual[i] = d.usdidr[bv_row(d, origin + hz[i])]
+>                 if (hasmissing(actual)) _error("aktual target belum tersedia")
+>                 // Interval RW: volatilitas teramati s/d origin, drift nol
+>                 hist = ln(d.usdidr[|1 \ r0|])
+>                 sig  = bv_sd(hist[|2 \ r0|] - hist[|1 \ r0-1|])
+>                 R = R \ (J(cols(hz), 1, origin), origin :+ hcol, hcol, actual, J(cols(hz), 1, base),
+>                         q[., 3], q[., 2], q[., 4], q[., 1], q[., 5],
+>                         base :* exp(invnormal(0.10) :* sqrt(hcol) :* sig),
+>                         base :* exp(invnormal(0.90) :* sqrt(hcol) :* sig),
+>                         base :* exp(invnormal(0.025) :* sqrt(hcol) :* sig),
+>                         base :* exp(invnormal(0.975) :* sqrt(hcol) :* sig),
+>                         J(cols(hz), 1, pr.ess/pr.ndraw), J(cols(hz), 1, pr.root_gt1))
+>         }
+>         return(R)
+> }
+
+: 
+: string rowvector bv_bt_names()
+> {
+>         return(("origin", "target", "horizon", "actual", "rw", "point", "lower80", "upper80",
+>                 "lower95", "upper95", "rw_lower80", "rw_upper80", "rw_lower95", "rw_upper95",
+>                 "ess_ratio", "root_gt1"))
+> }
+
+: 
+: // Circular block bootstrap relative RMSE (BVARX / RW); keluaran (lower, upper) 95%
+: real rowvector bv_boot_rrmse(real colvector actual, real colvector point, real colvector rw,
+>         real scalar R, real scalar block, real scalar seed)
+> {
+>         real colvector bs, starts, ix
+>         real scalar n, b, nb, i
+>         rseed(seed)
+>         n  = rows(actual)
+>         nb = ceil(n/block)
+>         bs = J(R, 1, .)
+>         for (b = 1; b <= R; b++) {
+>                 starts = ceil(runiform(nb, 1)*n)
+>                 ix = J(0, 1, .)
+>                 for (i = 1; i <= nb; i++) ix = ix \ (mod((starts[i] - 1) :+ (0::(block-1)), n) :+ 1)
+>                 ix = ix[|1 \ n|]
+>                 bs[b] = sqrt(mean((actual[ix] - point[ix]):^2) / mean((actual[ix] - rw[ix]):^2))
+>         }
+>         return(bv_quantile(bs, (0.025, 0.975))')
+> }
+
+: end
+------------------------------------------------------------------------------------------------------------------------
+
+. 
+. **## 2.5 Skor per horizon (Rmd: score_by_h), program Stata
+. * Input: dataset backtest di memori (kolom bv_bt_names). Output: satu baris per horizon.
+. program define bv_score
+  1.         gen double _eb2 = (actual - point)^2
+  2.         gen double _er2 = (actual - rw)^2
+  3.         gen double _aeb = abs(actual - point)
+  4.         gen double _aer = abs(actual - rw)
+  5.         gen double _lb2 = (100*ln(actual/point))^2
+  6.         gen double _lr2 = (100*ln(actual/rw))^2
+  7.         gen double _dir = sign(point - rw) == sign(actual - rw)
+  8.         gen double _c80 = actual >= lower80 & actual <= upper80
+  9.         gen double _c95 = actual >= lower95 & actual <= upper95
+ 10.         gen double _c80rw = actual >= rw_lower80 & actual <= rw_upper80
+ 11.         gen double _c95rw = actual >= rw_lower95 & actual <= rw_upper95
+ 12.         gen double _w80 = upper80 - lower80
+ 13.         collapse (count) n=origin (mean) _eb2 _er2 mae_bvar=_aeb mae_rw=_aer _lb2 _lr2 ///
+>                 direction_accuracy=_dir coverage80=_c80 coverage95=_c95 coverage80_rw=_c80rw ///
+>                 coverage95_rw=_c95rw width80=_w80 (min) min_ess_ratio=ess_ratio, by(horizon)
+ 14.         format n %9.0g
+ 15.         gen double rmse_bvar = sqrt(_eb2)
+ 16.         gen double rmse_rw = sqrt(_er2)
+ 17.         gen double relative_rmse = rmse_bvar/rmse_rw
+ 18.         gen double log_rmse_bvar = sqrt(_lb2)
+ 19.         gen double log_rmse_rw = sqrt(_lr2)
+ 20.         drop _eb2 _er2 _lb2 _lr2
+ 21.         order horizon n rmse_bvar rmse_rw relative_rmse mae_bvar mae_rw log_rmse_bvar log_rmse_rw ///
+>                 direction_accuracy coverage80 coverage95 coverage80_rw coverage95_rw width80 min_ess_ratio
+ 22. end
+
+. 
+. **## 2.6 Run akhir: baseline + skenario (dipakai 06 dan 08)
+. * Skenario: 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse.
+. mata:
+------------------------------------------------- mata (type end to exit) ----------------------------------------------
+: // Ringkasan jalur semua variabel (median, satuan alami) per step: (scen, mdate, s, tb, flows, res)
+: // Model changes: cadangan dalam perubahan log (bukan level), jadi kolom res dikosongkan.
+: real matrix bv_paths_median(struct bvpred scalar pr, real rowvector steps, real scalar sc, string scalar mode)
+> {
+>         real matrix M
+>         real scalar i, j, K
+>         K = 4
+>         M = J(cols(steps), 6, .)
+>         for (i = 1; i <= cols(steps); i++) {
+>                 M[i, 1] = sc
+>                 M[i, 2] = pr.times[steps[i]]
+>                 M[i, 3] = bv_quantile(pr.spot[., steps[i]], 0.5)
+>                 for (j = 2; j <= K; j++) M[i, j+2] = bv_median_path(pr, steps[i], j, K)
+>         }
+>         // flows kembali ke Rp tn, cadangan kembali ke USD bn
+>         M[., 5] = M[., 5]*10
+>         if (mode == "levels") M[., 6] = exp(M[., 6]/100)
+>         else M[., 6] = J(rows(M), 1, .)
+>         return(M)
+> }
+
+: 
+: // Kondisi skenario: TB dan flows = median baseline + (dtb, dfl) pada horizon chz
+: real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scalar cutoff, real rowvector chz, real sca
+> lar dtb, real scalar dfl)
+> {
+>         real matrix X
+>         real scalar i, s
+>         X = J(0, 3, .)
+>         for (i = 1; i <= cols(chz); i++) {
+>                 s = origin + chz[i] - cutoff
+>                 X = X \ (s, 2, bv_median_path(pb, s, 2, 4) + dtb)
+>                 X = X \ (s, 3, bv_median_path(pb, s, 3, 4) + dfl/10)
+>         }
+>         return(X)
+> }
+
+: 
+: // shock = matriks 3 x 3: baris = skenario Adverse, Upside, Severe Adverse; kolom = (pertumbuhan DXY, delta TB USD bn,
+>  delta flows Rp tn)
+: void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar l
+> ambda, real scalar inc_ust, real scalar nd, real matrix shock, real rowvector chz, real scalar soc)
+> {
+>         external struct bvdata scalar D
+>         external real matrix FIN_resid, FIN_tab, FIN_diag, FIN_cond, FIN_glob, FIN_vars, FIN_info
+>         struct bvfit scalar f
+>         struct bvfut scalar ub, u
+>         struct bvpred scalar pb, ps
+>         real matrix xc, xs, bridge
+>         real rowvector fsteps
+>         real colvector known
+>         real scalar i, j, r, k
+> 
+>         f = bv_fit(D, cutoff, sy0, p, lambda, inc_ust, soc)
+>         FIN_resid = D.mdate[f.idx], f.resid
+>         FIN_info = (f.n, D.mdate[f.idx[1]], f.cutoff, origin)
+> 
+>         ub = bv_future(f, D, origin, H, 0, 0)
+>         // Bridge makro yang sudah tersedia di snapshot (variabel 2..4)
+>         known = selectindex(ub.times :<= origin)
+>         for (i = 1; i <= rows(known); i++) {
+>                 r = bv_row(D, ub.times[known[i]])
+>                 for (j = 2; j <= 4; j++) {
+>                         if (!missing(D.Y[r, j])) ub.cond = ub.cond \ (known[i], j, D.Y[r, j])
+>                 }
+>         }
+>         bridge = ub.cond
+>         pb = bv_predict(f, ub, nd, J(0, 3, .), 40001)
+>         fsteps = selectindex(ub.times :> origin)'
+> 
+>         // Tabel spot: (scen, mdate, lower95, lower80, median, upper80, upper95, ess, ess_ratio)
+>         FIN_tab  = (J(cols(fsteps), 1, 1), bv_summary(pb, fsteps))
+>         FIN_vars = bv_paths_median(pb, fsteps, 1, f.mode)
+>         FIN_diag = (1, pb.ess, pb.ess/nd, pb.root_gt1, pb.root_gt105)
+>         xc = J(rows(bridge), 1, 0), bridge
+>         FIN_glob = ub.times, ub.dxy
+>         for (k = 1; k <= rows(shock); k++) {
+>                 xs = bv_scen_cond(pb, origin, f.cutoff, chz, shock[k, 2], shock[k, 3])
+>                 u = bv_future(f, D, origin, H, shock[k, 1], 0)
+>                 u.cond = bridge
+>                 ps = bv_predict(f, u, nd, xs, 40001)
+>                 FIN_tab  = FIN_tab \ (J(cols(fsteps), 1, k+1), bv_summary(ps, fsteps))
+>                 FIN_vars = FIN_vars \ bv_paths_median(ps, fsteps, k+1, f.mode)
+>                 FIN_diag = FIN_diag \ (k+1, ps.ess, ps.ess/nd, ps.root_gt1, ps.root_gt105)
+>                 xc = xc \ (J(rows(xs), 1, k+1), xs)
+>                 FIN_glob = FIN_glob, u.dxy
+>         }
+>         // Kondisi: (scen, step, mdate, variabel, nilai model); scen 0 = bridge (dipakai semua skenario)
+>         FIN_cond = xc[., (1..2)], ub.times[xc[., 2]], xc[., (3..4)]
+> }
+
+: end
+------------------------------------------------------------------------------------------------------------------------
+
+. 
+end of do-file
+
+. * 03: validation grid -> spesifikasi terkunci
+. do "$script\03_validation.do"
+
+. **# 3. VALIDATION: PILIH START YEAR, LAG, LAMBDA, SOC
+. * Rmd: chunk fungsi-backtest (bagian grid). Origin Jan 2021 - Jun 2023, target terakhir Des 2023.
+. * Skor = rata-rata relative RMSE (BVARX/RW) pada h = 1, 3, 6. Lebih kecil lebih baik.
+. * Aturan tie (ditetapkan sebelum melihat test): skor dalam 1% dari minimum -> pilih 2014,
+. * lalu 2013, lalu 2017; kemudian lag lebih pendek; kemudian lambda lebih kecil (shrinkage kuat);
+. * kemudian soc = 0 (prior manual tanpa dummy).
+. * soc (v2, di luar manual): 0 = prior manual; 1 = + dummy sum-of-coefficients/initial-observation.
+. * Menulis: intermediate/validation_grid.dta, validation_backtests.dta
+. * Output:  tables/T2_validation_grid; globals best_start best_p best_lambda best_soc
+. 
+. local hmax : word count $horizons
+
+. local hmax : word `hmax' of $horizons
+
+. assert $val_to + `hmax' <= ym(2023,12)
+
+. mata: hz = strtoreal(tokens(st_global("horizons")))
+
+. 
+. use "$data\database.dta", clear
+
+. mata: D = bv_load("levels")
+
+. 
+. tempname pv
+
+. postfile `pv' start_year p double lambda soc score rrmse_h1 rrmse_h3 rrmse_h6 min_ess_ratio ///
+>         using "$data\validation_grid.dta", replace
+
+. tempfile allbt
+
+. local first 1
+
+. foreach sy of global grid_start {
+  2.         foreach p of global grid_p {
+  3.                 foreach lam of global grid_lambda {
+  4.                         foreach soc of global grid_soc {
+  5.                                 di as txt "Validation: start=`sy' p=`p' lambda=`lam' soc=`soc'"
+  6.                                 mata: R = bv_backtest(D, `sy', `p', `lam', $include_ust, ($val_from::$val_to), ///
+>                                         $n_val, 10000, $release_lag, hz, `soc')
+  7.                                 mata: bv_tostata(R, bv_bt_names())
+  8.                                 gen start_year = `sy'
+  9.                                 gen p = `p'
+ 10.                                 gen double lambda = `lam'
+ 11.                                 gen soc = `soc'
+ 12.                                 if !`first' append using `allbt'
+ 13.                                 save `allbt', replace
+ 14.                                 local first 0
+ 15.                                 keep if start_year == `sy' & p == `p' & lambda == `lam' & soc == `soc'
+ 16.                                 bv_score
+ 17.                                 qui sum relative_rmse
+ 18.                                 local sc = r(mean)
+ 19.                                 forval i = 1/3 {
+ 20.                                         local r`i' = relative_rmse[`i']
+ 21.                                 }
+ 22.                                 qui sum min_ess_ratio
+ 23.                                 post `pv' (`sy') (`p') (`lam') (`soc') (`sc') (`r1') (`r2') (`r3') (r(min))
+ 24.                         }
+ 25.                 }
+ 26.         }
+ 27. }
+Validation: start=2013 p=1 lambda=0.10 soc=0
+(file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp not found)
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(0 observations deleted)
+Validation: start=2013 p=1 lambda=0.10 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(90 observations deleted)
+Validation: start=2013 p=1 lambda=0.30 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(180 observations deleted)
+Validation: start=2013 p=1 lambda=0.30 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(270 observations deleted)
+Validation: start=2013 p=2 lambda=0.10 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(360 observations deleted)
+Validation: start=2013 p=2 lambda=0.10 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(450 observations deleted)
+Validation: start=2013 p=2 lambda=0.30 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(540 observations deleted)
+Validation: start=2013 p=2 lambda=0.30 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(630 observations deleted)
+Validation: start=2014 p=1 lambda=0.10 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(720 observations deleted)
+Validation: start=2014 p=1 lambda=0.10 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(810 observations deleted)
+Validation: start=2014 p=1 lambda=0.30 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(900 observations deleted)
+Validation: start=2014 p=1 lambda=0.30 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(990 observations deleted)
+Validation: start=2014 p=2 lambda=0.10 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,080 observations deleted)
+Validation: start=2014 p=2 lambda=0.10 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,170 observations deleted)
+Validation: start=2014 p=2 lambda=0.30 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,260 observations deleted)
+Validation: start=2014 p=2 lambda=0.30 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,350 observations deleted)
+Validation: start=2017 p=1 lambda=0.10 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,440 observations deleted)
+Validation: start=2017 p=1 lambda=0.10 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,530 observations deleted)
+Validation: start=2017 p=1 lambda=0.30 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,620 observations deleted)
+Validation: start=2017 p=1 lambda=0.30 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,710 observations deleted)
+Validation: start=2017 p=2 lambda=0.10 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,800 observations deleted)
+Validation: start=2017 p=2 lambda=0.10 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,890 observations deleted)
+Validation: start=2017 p=2 lambda=0.30 soc=0
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(1,980 observations deleted)
+Validation: start=2017 p=2 lambda=0.30 soc=1
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+(2,070 observations deleted)
+
+. postclose `pv'
+
+. use `allbt', clear
+
+. format origin target %tm
+
+. save "$data\validation_backtests.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\validation_backtests.dta saved
+
+. 
+. **## 3.1 Kunci spesifikasi
+. use "$data\validation_grid.dta", clear
+
+. qui sum score
+
+. gen byte eligible = score <= r(min)*1.01
+
+. gen byte pref = cond(start_year == 2014, 0, cond(start_year == 2013, 1, 2))
+
+. gsort -eligible pref p lambda soc
+
+. gen byte chosen = _n == 1
+
+. global best_start = start_year[1]
+
+. global best_p = p[1]
+
+. global best_lambda = lambda[1]
+
+. global best_soc = soc[1]
+
+. drop pref
+
+. sort score
+
+. format score rrmse_h* min_ess_ratio %9.4f
+
+. list, noobs clean
+
+    start_~r   p   lambda   soc    score   rrmse_h1   rrmse_h3   rrmse_h6   min_es~o   eligible   chosen  
+        2014   1       .3     0   0.7506     0.9147     0.7045     0.6325     0.7457          1        1  
+        2014   2       .1     0   0.7540     0.8870     0.7225     0.6526     0.8193          1        0  
+        2014   2       .1     1   0.7614     0.8866     0.7244     0.6732     0.8134          0        0  
+        2014   1       .3     1   0.7668     0.9531     0.7138     0.6335     0.7617          0        0  
+        2014   2       .3     1   0.7702     0.8978     0.7505     0.6623     0.7372          0        0  
+        2014   1       .1     1   0.7715     0.9298     0.7233     0.6613     0.8131          0        0  
+        2014   2       .3     0   0.7729     0.9140     0.7556     0.6492     0.7095          0        0  
+        2014   1       .1     0   0.7764     0.9388     0.7302     0.6601     0.8102          0        0  
+        2013   1       .3     0   0.8007     0.9426     0.7774     0.6820     0.8467          0        0  
+        2013   2       .1     0   0.8094     0.9327     0.7873     0.7082     0.8526          0        0  
+        2013   1       .1     0   0.8252     0.9571     0.8077     0.7107     0.8505          0        0  
+        2013   2       .1     1   0.8275     0.9323     0.8248     0.7256     0.8391          0        0  
+        2013   1       .3     1   0.8288     0.9557     0.8268     0.7041     0.8476          0        0  
+        2013   2       .3     0   0.8352     0.9550     0.8478     0.7028     0.7801          0        0  
+        2013   1       .1     1   0.8550     0.9789     0.8550     0.7312     0.8507          0        0  
+        2017   1       .3     0   0.8600     0.9557     0.8810     0.7434     0.5106          0        0  
+        2017   2       .3     0   0.8706     0.9636     0.8861     0.7622     0.5308          0        0  
+        2017   1       .3     1   0.8732     0.9801     0.8597     0.7800     0.4923          0        0  
+        2013   2       .3     1   0.8751     0.9936     0.8756     0.7560     0.7680          0        0  
+        2017   2       .1     1   0.8798     0.9524     0.8861     0.8010     0.5685          0        0  
+        2017   1       .1     0   0.8802     0.9721     0.8982     0.7704     0.5602          0        0  
+        2017   2       .3     1   0.8825     1.0019     0.8680     0.7777     0.5121          0        0  
+        2017   2       .1     0   0.9007     0.9330     0.9186     0.8504     0.5913          0        0  
+        2017   1       .1     1   0.9145     1.0193     0.9217     0.8023     0.5401          0        0  
+
+. save "$data\validation_grid.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\validation_grid.dta saved
+
+. bv_out tab "T2_validation_grid"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T2_validation_grid.csv saved
+
+. 
+. di as res "Spesifikasi terkunci: start=$best_start  p=$best_p  lambda=$best_lambda  soc=$best_soc"
+Spesifikasi terkunci: start=2014  p=1  lambda=.3  soc=0
+
+. if $best_start != 2014 di as txt "Catatan: 2014 tidak terpilih; laporkan apa adanya (jangan pindahkan test)."
+
+. 
+end of do-file
+
+. * 04: test terkunci vs random walk, bootstrap relative RMSE
+. do "$script\04_test.do"
+
+. **# 4. TEST TERKUNCI: BVARX VS RANDOM WALK
+. * Rmd: chunk test-terkunci, bootstrap-error, plot-error-test.
+. * Origin Jan 2024 s/d (bulan lengkap terakhir - 6). Spesifikasi dari 03, tidak dipilih ulang.
+. * Menulis: intermediate/test_levels.dta, test_scores_levels.dta, test_bootstrap.dta
+. * Output:  tables/T3_test_forecasts, T4_test_scores, T5_test_bootstrap;
+. *          figures/4_test_h1.png, 4_test_h3.png, 4_test_h6.png, 4_test_rmse.png
+. 
+. local hmax : word count $horizons
+
+. local hmax : word `hmax' of $horizons
+
+. global test_to = $latest_complete - `hmax'
+
+. assert $test_from > $val_to + `hmax'
+
+. mata: hz = strtoreal(tokens(st_global("horizons")))
+
+. 
+. use "$data\database.dta", clear
+
+. mata: D = bv_load("levels")
+
+. mata: R = bv_backtest(D, $best_start, $best_p, $best_lambda, $include_ust, ///
+>         ($test_from::$test_to), $n_test, 20000, $release_lag, hz, $best_soc)
+
+. mata: bv_tostata(R, bv_bt_names())
+
+. format origin target %tm
+
+. save "$data\test_levels.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\test_levels.dta saved
+
+. bv_out tab "T3_test_forecasts"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T3_test_forecasts.csv saved
+
+. qui levelsof origin
+
+. di "Origin test: " %tm $test_from " sampai " %tm $test_to "; jumlah origin per horizon: `r(r)'"
+Origin test:  2024m1 sampai  2026m2; jumlah origin per horizon: 26
+
+. 
+. **## 4.1 Skor per horizon
+. bv_score
+
+. format rmse* mae* log_rmse* width80 %9.1f
+
+. format relative_rmse direction_accuracy coverage* min_ess_ratio %6.3f
+
+. list, noobs
+
+  +--------------------------------------------------------------------------------------------------------------+
+  | horizon |  n | rmse_b~r | rmse_rw | relati~e | mae_bvar | mae_rw | log_rm~r | log_rm~w | direct~y | cover~80 |
+  |       1 | 26 |    331.6 |   257.4 |    1.288 |    286.4 |  180.7 |      2.1 |      1.6 |    0.462 |    0.885 |
+  |--------------------------------------------------------------------------------------------------------------|
+  |      cover~95       |      cov~0_rw       |      cov~5_rw       |       width80       |       min_es~o       |
+  |         0.962       |         0.923       |         0.962       |         893.4       |          0.493       |
+  +--------------------------------------------------------------------------------------------------------------+
+
+  +--------------------------------------------------------------------------------------------------------------+
+  | horizon |  n | rmse_b~r | rmse_rw | relati~e | mae_bvar | mae_rw | log_rm~r | log_rm~w | direct~y | cover~80 |
+  |       3 | 26 |    743.1 |   544.3 |    1.365 |    654.4 |  445.2 |      4.5 |      3.4 |    0.346 |    0.538 |
+  |--------------------------------------------------------------------------------------------------------------|
+  |      cover~95       |      cov~0_rw       |      cov~5_rw       |       width80       |       min_es~o       |
+  |         0.885       |         0.885       |         1.000       |        1262.0       |          0.493       |
+  +--------------------------------------------------------------------------------------------------------------+
+
+  +--------------------------------------------------------------------------------------------------------------+
+  | horizon |  n | rmse_b~r | rmse_rw | relati~e | mae_bvar | mae_rw | log_rm~r | log_rm~w | direct~y | cover~80 |
+  |       6 | 26 |   1135.3 |   683.8 |    1.660 |    930.8 |  546.2 |      6.9 |      4.1 |    0.269 |    0.423 |
+  |--------------------------------------------------------------------------------------------------------------|
+  |      cover~95       |      cov~0_rw       |      cov~5_rw       |       width80       |       min_es~o       |
+  |         0.615       |         0.962       |         1.000       |        1420.2       |          0.493       |
+  +--------------------------------------------------------------------------------------------------------------+
+
+. save "$data\test_scores_levels.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\test_scores_levels.dta saved
+
+. bv_out tab "T4_test_scores"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T4_test_scores.csv saved
+
+. 
+. **## 4.2 Circular block bootstrap relative RMSE (blok 3/6/12, R = 1000)
+. * Interval meliputi 1 -> belum ada bukti kuat mengungguli random walk.
+. tempname pb
+
+. postfile `pb' horizon block lower upper using "$data\test_bootstrap.dta", replace
+
+. foreach h of global horizons {
+  2.         use "$data\test_levels.dta", clear
+  3.         keep if horizon == `h'
+  4.         sort origin
+  5.         foreach b in 3 6 12 {
+  6.                 mata: ci = bv_boot_rrmse(st_data(., "actual"), st_data(., "point"), st_data(., "rw"), 1000, `b', 77
+> )
+  7.                 mata: st_local("lo", strofreal(ci[1], "%20.0g")); st_local("hi", strofreal(ci[2], "%20.0g"))
+  8.                 post `pb' (`h') (`b') (`lo') (`hi')
+  9.         }
+ 10. }
+(52 observations deleted)
+(52 observations deleted)
+(52 observations deleted)
+
+. postclose `pb'
+
+. use "$data\test_bootstrap.dta", clear
+
+. merge m:1 horizon using "$data\test_scores_levels.dta", keepusing(relative_rmse) nogen
+(variable horizon was float, now double to accommodate using data's values)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                                 9  
+    -----------------------------------------
+
+. gen byte covers_one = lower <= 1 & upper >= 1
+
+. order horizon block relative_rmse lower upper covers_one
+
+. format relative_rmse lower upper %6.3f
+
+. list, noobs clean
+
+    horizon   block   relati~e   lower   upper   covers~e  
+          1       3      1.288   1.000   2.151          0  
+          1       6      1.288   0.970   2.564          1  
+          1      12      1.288   0.961   2.423          1  
+          3       3      1.365   0.920   1.984          1  
+          3       6      1.365   0.868   2.221          1  
+          3      12      1.365   0.841   2.255          1  
+          6       3      1.660   1.199   2.115          0  
+          6       6      1.660   1.088   2.235          0  
+          6      12      1.660   1.079   2.150          0  
+
+. save "$data\test_bootstrap.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\test_bootstrap.dta saved
+
+. bv_out tab "T5_test_bootstrap"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T5_test_bootstrap.csv saved
+
+. 
+. **## 4.3 Grafik aktual vs BVARX vs RW per horizon
+. foreach h of global horizons {
+  2.         use "$data\test_levels.dta", clear
+  3.         keep if horizon == `h'
+  4.         twoway (rarea lower80 upper80 target, color("24 90 141%15") lwidth(none)) ///
+>                 (line actual target, lcolor(black) lwidth(medthick)) ///
+>                 (line point target, lcolor("24 90 141") lwidth(medthick)) ///
+>                 (line rw target, lcolor("164 87 23") lpattern(dash)), ///
+>                 title("Test: horizon `h' bulan", size(medium)) xtitle("Bulan target") ytitle("IDR per USD") ///
+>                 legend(order(2 "Aktual" 3 "BVARX median" 4 "RW" 1 "Band 80% BVARX") rows(1) size(small) position(6)) /
+> //
+>                 xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) graphregion(color(white)) name(test_h`h', rep
+> lace)
+  5.         graph save "$gph\4_test_h`h'.gph", replace
+  6.         graph export "$fig\4_test_h`h'.png", replace width(1800)
+  7. }
+(52 observations deleted)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\4_test_h1.gph saved
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\4_test_h1.png saved as PNG format
+(52 observations deleted)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\4_test_h3.gph saved
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\4_test_h3.png saved as PNG format
+(52 observations deleted)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\4_test_h6.gph saved
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\4_test_h6.png saved as PNG format
+
+. 
+. use "$data\test_scores_levels.dta", clear
+
+. graph bar rmse_bvar rmse_rw, over(horizon, relabel(1 "h=1" 2 "h=3" 3 "h=6")) ///
+>         bar(1, color("24 90 141")) bar(2, color("164 87 23")) ///
+>         legend(order(1 "BVARX" 2 "Random walk") rows(1) position(6)) ytitle("RMSE (IDR per USD)") ///
+>         title("Test: RMSE BVARX vs random walk", size(medium)) blabel(bar, format(%9.0f) size(vsmall)) ///
+>         graphregion(color(white)) name(test_rmse, replace)
+
+. graph save "$gph\4_test_rmse.gph", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\4_test_rmse.gph saved
+
+. graph export "$fig\4_test_rmse.png", replace width(1800)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\4_test_rmse.png saved as PNG format
+
+. 
+end of do-file
+
+. * 05: sensitivity changes
+. if $run_sensitivity do "$script\05_sensitivity.do"
+
+. **# 5. SENSITIVITY: SPESIFIKASI CHANGES
+. * Rmd: chunk sensitivity-changes. Perubahan log USD/IDR, cadangan, DXY; TB dan flows tetap.
+. * Hyperparameter sama dengan spesifikasi terkunci; bukan pemilihan model baru dari test.
+. * Menulis: intermediate/test_changes.dta, sensitivity.dta
+. * Output:  tables/T6_sensitivity_levels_changes
+. 
+. mata: hz = strtoreal(tokens(st_global("horizons")))
+
+. use "$data\database.dta", clear
+
+. mata: Dc = bv_load("changes")
+
+. mata: R = bv_backtest(Dc, $best_start, $best_p, $best_lambda, $include_ust, ///
+>         ($test_from::$test_to), $n_test, 30000, $release_lag, hz, $best_soc)
+
+. mata: bv_tostata(R, bv_bt_names())
+
+. format origin target %tm
+
+. save "$data\test_changes.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\test_changes.dta saved
+
+. bv_score
+
+. keep horizon relative_rmse rmse_bvar coverage80 coverage95
+
+. rename (relative_rmse rmse_bvar coverage80 coverage95) (=_changes)
+
+. tempfile ch
+
+. save `ch'
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+
+. 
+. use "$data\test_scores_levels.dta", clear
+
+. keep horizon relative_rmse rmse_bvar rmse_rw coverage80 coverage95
+
+. rename (relative_rmse rmse_bvar coverage80 coverage95) (=_levels)
+
+. merge 1:1 horizon using `ch', nogen
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                                 3  
+    -----------------------------------------
+
+. order horizon rmse_rw rmse_bvar_levels rmse_bvar_changes relative_rmse_levels relative_rmse_changes
+
+. format rmse* %9.1f
+
+. format relative_rmse* coverage* %6.3f
+
+. list, noobs clean
+
+    horizon   rmse_rw   rmse_~ls   rmse_~es   relat~ls   relat~es   covera..   covera..   covera..   covera..  
+          1     257.4      331.6      275.2      1.288      1.069      0.885      0.962      0.923      0.962  
+          3     544.3      743.1      568.6      1.365      1.045      0.538      0.885      0.846      0.962  
+          6     683.8     1135.3      650.1      1.660      0.951      0.423      0.615      0.962      1.000  
+
+. save "$data\sensitivity.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\sensitivity.dta saved
+
+. bv_out tab "T6_sensitivity_levels_changes"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T6_sensitivity_levels_changes.csv saved
+
+. 
+end of do-file
+
+. * 06: fit akhir, diagnostik, baseline dan skenario bersyarat
+. do "$script\06_final_scenarios.do"
+
+. **# 6. FIT AKHIR, DIAGNOSTIK, BASELINE DAN SKENARIO BERSYARAT
+. * Rmd: chunk fit-akhir-diagnostik, baseline-snapshot, conditional-scenarios, plot-skenario.
+. * Fit sampai bulan lengkap terakhir (latest_complete); anchor pasar = final_origin.
+. * Bulan di antara cutoff dan anchor dijembatani dengan observasi yang sudah ada di snapshot
+. * (USD/IDR, flows, cadangan; TB September kosong dibiarkan tak teramati). Aturan bridge makro
+. * ini hanya untuk forecast akhir, TIDAK dipakai dalam backtest.
+. * Model akhir = global final_mode (levels | changes). Skenario ilustratif (bukan shock struktural),
+. * besaran di 00_master.do: pada h = 3 dan 6, TB dan flows digeser terhadap median baseline, dan DXY
+. * menuju (1 + g) pada akhir horizon. 2 Adverse, 3 Upside, 4 Severe Adverse.
+. * Menulis: intermediate/final_residuals.dta, scenario_*.dta
+. * Output:  tables/T7_baseline, T8_scenarios, T9_scenario_paths_all, T10_scenario_inputs,
+. *          T11_global_paths; diagnostics/D3_residual_tests, D4_residual_corr, D5_scenario_ess_roots;
+. *          T14_scenario_summary; figures/6_residual_acf.png, 6_scenarios_fan.png,
+. *          6_scenario_macro.png, 6_scenario_table.png
+. 
+. **## 6.2 Jalankan fit akhir dan skenario
+. use "$data\database.dta", clear
+
+. mata: D = bv_load("$final_mode")
+
+. mata: bv_final_run($latest_complete, $final_origin, $H_final, $best_start, $best_p, $best_lambda, ///
+>         $include_ust, $n_final, $shock_mat, strtoreal(tokens(st_global("cond_horizons"))), $best_soc)
+
+. mata: st_global("fin_n", strofreal(FIN_info[1])); st_global("fin_from", strofreal(FIN_info[2]))
+
+. di "Training akhir: " %tm $fin_from " sampai " %tm $latest_complete "; N = $fin_n"
+Training akhir:  2014m1 sampai  2026m8; N = 152
+
+. 
+. * label skenario
+. cap program drop bv_scenlab
+
+. program define bv_scenlab
+  1.         label define scen 0 "bridge" 1 "Baseline" 2 "Adverse" 3 "Upside" 4 "Severe Adverse", replace
+  2.         label values scenario scen
+  3. end
+
+. 
+. **## 6.3 Diagnostik residual (training akhir)
+. mata: bv_tostata(FIN_resid, ("mdate", "res_s", "res_tb", "res_flows", "res_res"))
+
+. format mdate %tm
+
+. tsset mdate, monthly
+
+Time variable: mdate, 2014m1 to 2026m8
+        Delta: 1 month
+
+. save "$data\final_residuals.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\final_residuals.dta saved
+
+. 
+. * SD, Ljung-Box Q(12) dan uji normalitas (skewness/kurtosis) per persamaan
+. tempname pr
+
+. postfile `pr' str10 equation N sd lb_q12 lb_p12 sk_skew_p sk_kurt_p sk_joint_p ///
+>         using "$data\residual_tests.dta", replace
+
+. foreach v in res_s res_tb res_flows res_res {
+  2.         qui sum `v'
+  3.         local sd = r(sd)
+  4.         local N = r(N)
+  5.         qui wntestq `v', lags(12)
+  6.         local q = r(stat)
+  7.         local qp = r(p)
+  8.         * sktest: r(Utest) = (Pr skewness, Pr kurtosis, chi2, Prob>chi2)
+.         local skp .
+  9.         local kup .
+ 10.         local jp .
+ 11.         cap qui sktest `v'
+ 12.         if !_rc {
+ 13.                 tempname U
+ 14.                 matrix `U' = r(Utest)
+ 15.                 local skp = `U'[1, 1]
+ 16.                 local kup = `U'[1, 2]
+ 17.                 local jp = `U'[1, colsof(`U')]
+ 18.         }
+ 19.         post `pr' ("`v'") (`N') (`sd') (`q') (`qp') (`skp') (`kup') (`jp')
+ 20. }
+
+. postclose `pr'
+
+. preserve
+
+.         use "$data\residual_tests.dta", clear
+
+.         gen str30 lb_conclusion = cond(lb_p12 < 0.05, "autokorelasi tersisa (p<0.05)", "tidak ada bukti autokorelasi")
+
+.         format sd lb_q12 %9.3f
+
+.         format lb_p12 sk_* %6.3f
+
+.         list, noobs clean
+
+     equation     N      sd   lb_q12   lb_p12   sk_ske~p   sk_kur~p   sk_joi~p                   lb_conclusion  
+        res_s   152   2.087    8.533    0.742      0.000      0.000      0.000    tidak ada bukti autokorelasi  
+       res_tb   152   1.404   57.451    0.000      0.572      0.353      0.549   autokorelasi tersisa (p<0.05)  
+    res_flows   152   2.537   13.012    0.368      0.094      0.000      0.001    tidak ada bukti autokorelasi  
+      res_res   152   2.136    5.749    0.928      0.860      0.078      0.203    tidak ada bukti autokorelasi  
+
+.         bv_out diag "D3_residual_tests"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D3_residual_tests.csv saved
+
+. restore
+
+. 
+. * Korelasi residual antar persamaan
+. preserve
+
+.         qui corr res_s res_tb res_flows res_res
+
+.         matrix C = r(C)
+
+.         clear
+
+.         svmat double C, names(col)
+number of observations will be reset to 4
+Press any key to continue, or Break to abort
+Number of observations (_N) was 0, now 4.
+
+.         gen str10 variable = ""
+(4 missing values generated)
+
+.         local i 0
+
+.         foreach v in res_s res_tb res_flows res_res {
+  2.                 local ++i
+  3.                 replace variable = "`v'" in `i'
+  4.         }
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+
+.         order variable
+
+.         format res_* %6.3f
+
+.         list, noobs clean
+
+     variable    res_s   res_tb   res_fl~s   res_res  
+        res_s    1.000   -0.088     -0.445    -0.422  
+       res_tb   -0.088    1.000     -0.000    -0.009  
+    res_flows   -0.445   -0.000      1.000     0.479  
+      res_res   -0.422   -0.009      0.479     1.000  
+
+.         bv_out diag "D4_residual_corr"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D4_residual_corr.csv saved
+
+. restore
+
+. 
+. * ACF residual (12 lag)
+. local i 0
+
+. foreach v in res_s res_tb res_flows res_res {
+  2.         local ++i
+  3.         local t : word `i' of "USD/IDR" "Trade balance" "Flows" "Cadangan"
+  4.         ac `v', lags(12) title("Residual `t'", size(medium)) ytitle("") xtitle("Lag") ///
+>                 graphregion(color(white)) name(acf`i', replace) nodraw
+  5. }
+
+. graph combine acf1 acf2 acf3 acf4, cols(2) graphregion(color(white)) name(resid_acf, replace)
+
+. graph save "$gph\6_residual_acf.gph", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\6_residual_acf.gph saved
+
+. graph export "$fig\6_residual_acf.png", replace width(1800)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\6_residual_acf.png saved as PNG format
+
+. 
+. **## 6.4 Tabel baseline dan skenario
+. mata: bv_tostata(FIN_tab, ("scenario", "mdate", "lower95", "lower80", "median", "upper80", "upper95", "ess", "ess_rati
+> o"))
+
+. bv_scenlab
+
+. format mdate %tm
+
+. gen double spot_anchor = .
+(24 missing values generated)
+
+. preserve
+
+.         use "$data\database.dta", clear
+
+.         qui sum usdidr if mdate == $final_origin
+
+.         global anchor_spot = r(mean)
+
+. restore
+
+. replace spot_anchor = $anchor_spot
+(24 real changes made)
+
+. gen double pct_vs_anchor = 100*(median/spot_anchor - 1)
+
+. format lower* median upper* spot_anchor %9.0f
+
+. format pct_vs_anchor ess_ratio %6.2f
+
+. format ess %9.0f
+
+. save "$data\scenario_spot.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_spot.dta saved
+
+. list scenario mdate lower80 median upper80 pct_vs_anchor ess_ratio, noobs sepby(scenario)
+
+  +-----------------------------------------------------------------------------+
+  |       scenario     mdate   lower80   median   upper80   pct_vs~r   ess_ra~o |
+  |-----------------------------------------------------------------------------|
+  |       Baseline   2026m10     17385    17876     18350       0.03       0.98 |
+  |       Baseline   2026m11     17227    17892     18548       0.12       0.98 |
+  |       Baseline   2026m12     17102    17906     18719       0.20       0.98 |
+  |       Baseline    2027m1     17021    17941     18904       0.40       0.98 |
+  |       Baseline    2027m2     16983    17988     19085       0.66       0.98 |
+  |       Baseline    2027m3     16992    18033     19258       0.91       0.98 |
+  |-----------------------------------------------------------------------------|
+  |        Adverse   2026m10     17409    17906     18404       0.20       0.91 |
+  |        Adverse   2026m11     17282    17967     18648       0.55       0.91 |
+  |        Adverse   2026m12     17299    18063     18852       1.08       0.91 |
+  |        Adverse    2027m1     17195    18075     19065       1.15       0.91 |
+  |        Adverse    2027m2     17181    18160     19258       1.63       0.91 |
+  |        Adverse    2027m3     17271    18325     19464       2.55       0.91 |
+  |-----------------------------------------------------------------------------|
+  |         Upside   2026m10     17353    17839     18322      -0.18       0.91 |
+  |         Upside   2026m11     17138    17808     18459      -0.34       0.91 |
+  |         Upside   2026m12     16984    17735     18495      -0.75       0.91 |
+  |         Upside    2027m1     16858    17773     18701      -0.55       0.91 |
+  |         Upside    2027m2     16797    17774     18822      -0.54       0.91 |
+  |         Upside    2027m3     16718    17754     18872      -0.65       0.91 |
+  |-----------------------------------------------------------------------------|
+  | Severe Adverse   2026m10     17460    17947     18413       0.43       0.79 |
+  | Severe Adverse   2026m11     17407    18080     18769       1.18       0.79 |
+  | Severe Adverse   2026m12     17595    18352     19152       2.70       0.79 |
+  | Severe Adverse    2027m1     17496    18378     19381       2.84       0.79 |
+  | Severe Adverse    2027m2     17531    18521     19678       3.64       0.79 |
+  | Severe Adverse    2027m3     17753    18855     20089       5.51       0.79 |
+  +-----------------------------------------------------------------------------+
+
+. bv_out tab "T8_scenarios"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T8_scenarios.csv saved
+
+. preserve
+
+.         keep if scenario == 1
+(18 observations deleted)
+
+.         bv_out tab "T7_baseline"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T7_baseline.csv saved
+
+. restore
+
+. 
+. mata: bv_tostata(FIN_vars, ("scenario", "mdate", "usdidr_median", "trade_bal_usdbn_median", "net_flows_idrtn_median", 
+> "fx_reserves_usdbn_median"))
+
+. bv_scenlab
+
+. format mdate %tm
+
+. format *_median %9.2f
+
+. save "$data\scenario_paths_all.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_paths_all.dta saved
+
+. bv_out tab "T9_scenario_paths_all"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T9_scenario_paths_all.csv saved
+
+. 
+. mata: bv_tostata(FIN_cond, ("scenario", "step", "mdate", "variable", "value_model"))
+
+. bv_scenlab
+
+. format mdate %tm
+
+. gen str8 var_name = word("y_s y_tb y_flows y_res", variable)
+
+. * nilai dalam satuan alami
+. * model changes: variabel 1 dan 4 berupa perubahan 100*log (persen), bukan level
+. gen double value_natural = cond(variable == 3, value_model*10, cond((variable == 1 | variable == 4) & "$final_mode" ==
+>  "levels", exp(value_model/100), value_model))
+
+. save "$data\scenario_conditions.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_conditions.dta saved
+
+. list, noobs sepby(scenario)
+
+  +---------------------------------------------------------------------------------+
+  |       scenario   step     mdate   variable   value_mo~l   var_name   value_na~l |
+  |---------------------------------------------------------------------------------|
+  |         bridge      1    2026m9          1     .8429384        y_s     .8429384 |
+  |         bridge      1    2026m9          3   -1.2099099    y_flows   -12.099099 |
+  |         bridge      1    2026m9          4    .41558582      y_res    .41558582 |
+  |---------------------------------------------------------------------------------|
+  |        Adverse      4   2026m12          2    .97314756       y_tb    .97314756 |
+  |        Adverse      4   2026m12          3   -.73535929    y_flows   -7.3535929 |
+  |        Adverse      7    2027m3          2    .42065613       y_tb    .42065613 |
+  |        Adverse      7    2027m3          3   -.36958805    y_flows   -3.6958805 |
+  |---------------------------------------------------------------------------------|
+  |         Upside      4   2026m12          2    2.9731476       y_tb    2.9731476 |
+  |         Upside      4   2026m12          3    1.2646407    y_flows    12.646407 |
+  |         Upside      7    2027m3          2    2.4206561       y_tb    2.4206561 |
+  |         Upside      7    2027m3          3     1.630412    y_flows     16.30412 |
+  |---------------------------------------------------------------------------------|
+  | Severe Adverse      4   2026m12          2   -.02685244       y_tb   -.02685244 |
+  | Severe Adverse      4   2026m12          3   -2.7353593    y_flows   -27.353593 |
+  | Severe Adverse      7    2027m3          2   -.57934387       y_tb   -.57934387 |
+  | Severe Adverse      7    2027m3          3    -2.369588    y_flows    -23.69588 |
+  +---------------------------------------------------------------------------------+
+
+. bv_out tab "T10_scenario_inputs"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T10_scenario_inputs.csv saved
+
+. 
+. mata: bv_tostata(FIN_glob, ("mdate", "dxy_baseline", "dxy_adverse", "dxy_upside", "dxy_severe"))
+
+. format mdate %tm
+
+. format dxy_* %9.3f
+
+. save "$data\scenario_global_paths.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_global_paths.dta saved
+
+. bv_out tab "T11_global_paths"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T11_global_paths.csv saved
+
+. 
+. mata: bv_tostata(FIN_diag, ("scenario", "ess", "ess_ratio", "root_gt1", "root_gt105"))
+
+. bv_scenlab
+
+. format ess %9.0f
+
+. format ess_ratio root_* %6.3f
+
+. gen byte low_ess = ess < 100 | ess_ratio < 0.01
+
+. list, noobs clean
+
+          scenario    ess   ess_ra~o   root_gt1   root~105   low_ess  
+          Baseline   5862      0.977      0.000      0.000         0  
+           Adverse   5462      0.910      0.000      0.000         0  
+            Upside   5472      0.912      0.000      0.000         0  
+    Severe Adverse   4746      0.791      0.000      0.000         0  
+
+. save "$data\scenario_diag.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_diag.dta saved
+
+. bv_out diag "D5_scenario_ess_roots"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D5_scenario_ess_roots.csv saved
+
+. qui count if low_ess
+
+. if r(N) di as error "PERHATIAN: setidaknya satu skenario mempunyai ESS rendah. Gunakan sebagai draft; tambah draw."
+
+. 
+. **## 6.5 Grafik: fan chart baseline + median skenario, dengan riwayat 24 bulan
+. use "$data\scenario_spot.dta", clear
+
+. keep scenario mdate lower95 lower80 median upper80 upper95
+
+. reshape wide lower95 lower80 median upper80 upper95, i(mdate) j(scenario)
+(j = 1 2 3 4)
+
+Data                               Long   ->   Wide
+-----------------------------------------------------------------------------
+Number of observations               24   ->   6           
+Number of variables                   7   ->   21          
+j variable (4 values)          scenario   ->   (dropped)
+xij variables:
+                                lower95   ->   lower951 lower952 ... lower954
+                                lower80   ->   lower801 lower802 ... lower804
+                                 median   ->   median1 median2 ... median4
+                                upper80   ->   upper801 upper802 ... upper804
+                                upper95   ->   upper951 upper952 ... upper954
+-----------------------------------------------------------------------------
+
+. tempfile fc
+
+. save `fc'
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000005.tmp saved as .dta format
+
+. use mdate usdidr using "$data\database.dta", clear
+
+. keep if mdate > $final_origin - 24 & mdate <= $final_origin
+(141 observations deleted)
+
+. append using `fc'
+(variable mdate was int, now double to accommodate using data's values)
+
+. sort mdate
+
+. * sambungkan garis median ke anchor
+. forval s = 1/4 {
+  2.         replace median`s' = usdidr if mdate == $final_origin
+  3. }
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+
+. local anch : di %tmMon_CCYY $final_origin
+
+. twoway (rarea lower951 upper951 mdate, color("24 90 141%10") lwidth(none)) ///
+>         (rarea lower801 upper801 mdate, color("24 90 141%22") lwidth(none)) ///
+>         (line usdidr mdate, lcolor(black) lwidth(medthick)) ///
+>         (line median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
+>         (line median2 mdate, lcolor("164 87 23") lwidth(medthick) lpattern(dash)) ///
+>         (line median3 mdate, lcolor("35 114 74") lwidth(medthick) lpattern(shortdash)) ///
+>         (line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)), ///
+>         xline($final_origin, lcolor(gs10) lpattern(dot)) ///
+>         title("USD/IDR: proyeksi bersyarat pada jalur skenario (model $final_mode)", size(medium)) ///
+>         subtitle("Band baseline 80% dan 95%; anchor `anch'", size(small)) ///
+>         xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
+>         legend(order(3 "Aktual" 4 "Baseline" 5 "Adverse" 6 "Upside" 7 "Severe Adverse" 2 "Band 80%" 1 "Band 95%") rows
+> (2) size(small) position(6)) ///
+>         graphregion(color(white)) name(scen_fan, replace)
+
+. graph save "$gph\6_scenarios_fan.gph", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\6_scenarios_fan.gph saved
+
+. graph export "$fig\6_scenarios_fan.png", replace width(1800)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\6_scenarios_fan.png saved as PNG format
+
+. 
+. 
+. **## 6.6 Asumsi makro per skenario: DXY, trade balance, flows (grafik + tabel ringkas)
+. * DXY: jalur eksogen yang diasumsikan. TB dan flows: median jalur model; pada Adverse/Upside/Severe
+. * Adverse nilainya dikunci di h = 3 dan 6 (titik berlabel), bulan lain mengikuti model.
+. use "$data\scenario_global_paths.dta", clear
+
+. rename (dxy_baseline dxy_adverse dxy_upside dxy_severe) (dxy1 dxy2 dxy3 dxy4)
+
+. reshape long dxy, i(mdate) j(scenario)
+(j = 1 2 3 4)
+
+Data                               Wide   ->   Long
+-----------------------------------------------------------------------------
+Number of observations                7   ->   28          
+Number of variables                   5   ->   3           
+j variable (4 values)                     ->   scenario
+xij variables:
+                     dxy1 dxy2 ... dxy4   ->   dxy
+-----------------------------------------------------------------------------
+
+. keep if mdate >= $final_origin
+(0 observations deleted)
+
+. tempfile gl
+
+. save `gl'
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000006.tmp saved as .dta format
+
+. use "$data\scenario_paths_all.dta", clear
+
+. keep scenario mdate usdidr_median trade_bal_usdbn_median net_flows_idrtn_median
+
+. rename (usdidr_median trade_bal_usdbn_median net_flows_idrtn_median) (usdidr tb flows)
+
+. merge 1:1 scenario mdate using `gl', nogen
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             4
+        from master                         0  
+        from using                          4  
+
+    Matched                                24  
+    -----------------------------------------
+
+. bv_scenlab
+
+. sort scenario mdate
+
+. gen byte lab_pt = inlist(mdate, $final_origin + 3, $final_origin + 6)
+
+. foreach v in dxy tb flows {
+  2.         gen str8 l_`v' = string(`v', "%5.1f") if lab_pt
+  3. }
+(20 missing values generated)
+(20 missing values generated)
+(20 missing values generated)
+
+. save "$data\scenario_macro_paths.dta", replace
+(file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_macro_paths.dta not found)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_macro_paths.dta saved
+
+. 
+. local cols `""24 90 141" "164 87 23" "35 114 74" "170 30 30""'
+
+. local pats "solid dash shortdash longdash"
+
+. local k 0
+
+. foreach v in dxy tb flows {
+  2.         local ++k
+  3.         local t : word `k' of "DXY (indeks)" "Trade balance (USD bn)" "Net flows (Rp tn)"
+  4.         local plots ""
+  5.         forval s = 1/4 {
+  6.                 local c : word `s' of `cols'
+  7.                 local pt : word `s' of `pats'
+  8.                 local plots `plots' (line `v' mdate if scenario == `s', lcolor("`c'") lpattern(`pt') lwidth(medthic
+> k))
+  9.                 local plots `plots' (scatter `v' mdate if scenario == `s' & lab_pt, mcolor("`c'") msize(small) mlab
+> el(l_`v') mlabcolor("`c'") mlabsize(vsmall) mlabposition(1))
+ 10.         }
+ 11.         twoway `plots', title("`t'", size(medium)) xtitle("") ytitle("") ///
+>                 xlabel(#6, format(%tmMon_CCYY) labsize(vsmall) angle(30)) ///
+>                 legend(off) ///
+>                 graphregion(color(white)) name(mac`k', replace) nodraw
+ 12. }
+
+. graph combine mac1 mac2 mac3, cols(3) graphregion(color(white)) xsize(13) ysize(4.8) ///
+>         title("Asumsi makro per skenario", size(medium)) ///
+>         note("Garis: Baseline = biru utuh; Adverse = oranye putus-putus; Upside = hijau titik-titik; Severe Adverse = 
+> merah putus panjang." ///
+>                 "Angka berlabel = nilai pada h = 3 dan 6 bulan (dikunci pada skenario non-baseline). TB dan flows Base
+> line = median model.", size(vsmall)) ///
+>         name(scen_macro, replace)
+
+. graph save "$gph\6_scenario_macro.gph", replace
+(file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\6_scenario_macro.gph not found)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\6_scenario_macro.gph saved
+
+. graph export "$fig\6_scenario_macro.png", replace width(2600)
+(file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\6_scenario_macro.png not found)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\6_scenario_macro.png saved as PNG format
+
+. 
+. **## 6.7 Tabel ringkas skenario (asumsi + hasil USD/IDR), juga sebagai PNG
+. use "$data\scenario_macro_paths.dta", clear
+
+. keep if inlist(mdate, $final_origin + 3, $final_origin + 6)
+(20 observations deleted)
+
+. gen byte hh = mdate - $final_origin
+
+. keep scenario hh dxy tb flows usdidr
+
+. reshape wide dxy tb flows usdidr, i(scenario) j(hh)
+(j = 3 6)
+
+Data                               Long   ->   Wide
+-----------------------------------------------------------------------------
+Number of observations                8   ->   4           
+Number of variables                   6   ->   9           
+j variable (2 values)                hh   ->   (dropped)
+xij variables:
+                                    dxy   ->   dxy3 dxy6
+                                     tb   ->   tb3 tb6
+                                  flows   ->   flows3 flows6
+                                 usdidr   ->   usdidr3 usdidr6
+-----------------------------------------------------------------------------
+
+. preserve
+
+.         use "$data\scenario_global_paths.dta", clear
+
+.         qui sum dxy_baseline if mdate == $final_origin
+
+.         global dxy0 = r(mean)
+
+. restore
+
+. gen double dxy_pct6 = 100*(dxy6/$dxy0 - 1)
+
+. * batas 80% USD/IDR pada h = 6
+. preserve
+
+.         use "$data\scenario_spot.dta", clear
+
+.         keep if mdate == $final_origin + 6
+(20 observations deleted)
+
+.         keep scenario lower80 upper80
+
+.         tempfile b80
+
+.         save `b80'
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000009.tmp saved as .dta format
+
+. restore
+
+. merge 1:1 scenario using `b80', nogen
+(label scen already defined)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                                 4  
+    -----------------------------------------
+
+. gen double pct_vs_anchor6 = 100*(usdidr6/$anchor_spot - 1)
+
+. bv_scenlab
+
+. sort scenario
+
+. order scenario dxy_pct6 tb3 tb6 flows3 flows6 usdidr3 usdidr6 lower80 upper80 pct_vs_anchor6
+
+. keep scenario dxy_pct6 tb3 tb6 flows3 flows6 usdidr3 usdidr6 lower80 upper80 pct_vs_anchor6
+
+. label var dxy_pct6 "DXY Mar-27 vs Sep-26 (%)"
+
+. label var tb3 "TB Des-26 (USD bn)"
+
+. label var tb6 "TB Mar-27 (USD bn)"
+
+. label var flows3 "Flows Des-26 (Rp tn)"
+
+. label var flows6 "Flows Mar-27 (Rp tn)"
+
+. label var usdidr3 "USD/IDR Des-26 (median)"
+
+. label var usdidr6 "USD/IDR Mar-27 (median)"
+
+. label var lower80 "USD/IDR Mar-27 batas bawah 80%"
+
+. label var upper80 "USD/IDR Mar-27 batas atas 80%"
+
+. label var pct_vs_anchor6 "Mar-27 vs Sep-26 (%)"
+
+. format dxy_pct6 tb* flows* pct_vs_anchor6 %6.1f
+
+. format usdidr* lower80 upper80 %9.0f
+
+. list, noobs clean
+
+          scenario   dxy_pct6    tb3    tb6   flows3   flows6   usdidr3   usdidr6   lower80   upper80   pct_vs~6  
+          Baseline        0.0    2.0    1.4      2.6      6.3     17906     18033     16992     19258        0.9  
+           Adverse        2.0    1.0    0.4     -7.4     -3.7     18063     18325     17271     19464        2.5  
+            Upside       -2.0    3.0    2.4     12.6     16.3     17735     17754     16718     18872       -0.7  
+    Severe Adverse        5.0   -0.0   -0.6    -27.4    -23.7     18352     18855     17753     20089        5.5  
+
+. save "$data\scenario_summary.dta", replace
+(file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_summary.dta not found)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_summary.dta saved
+
+. bv_out tab "T14_scenario_summary"
+(file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T14_scenario_summary.csv not found)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T14_scenario_summary.csv saved
+
+. 
+. * Render tabel sebagai PNG (teks pada kanvas grafik)
+. local cx "3 22 33 44 55 66 79 94"
+
+. local heads `""Skenario" "DXY Mar-27" "TB Des-26" "TB Mar-27" "Flows Des-26" "Flows Mar-27" "USD/IDR Des-26" "USD/IDR 
+> Mar-27 (80%)""'
+
+. local units `""" "vs Sep-26" "USD bn" "USD bn" "Rp tn" "Rp tn" "median" "median [rentang]""'
+
+. local txt ""
+
+. forval j = 1/8 {
+  2.         local x : word `j' of `cx'
+  3.         local h : word `j' of `heads'
+  4.         local u : word `j' of `units'
+  5.         local txt `txt' text(92 `x' "`h'", place(e) size(small) color(black)) text(86 `x' "`u'", place(e) size(vsma
+> ll) color(gs7))
+  6. }
+
+. forval i = 1/`=_N' {
+  2.         local y = 84 - 16*`i'
+  3.         local sc : label scen `=scenario[`i']'
+  4.         local v2 = cond(dxy_pct6[`i'] >= 0, "+", "") + strtrim(string(dxy_pct6[`i'], "%5.1f")) + "%"
+  5.         local v3 = strtrim(string(tb3[`i'], "%5.1f"))
+  6.         local v4 = strtrim(string(tb6[`i'], "%5.1f"))
+  7.         local v5 = strtrim(string(flows3[`i'], "%6.1f"))
+  8.         local v6 = strtrim(string(flows6[`i'], "%6.1f"))
+  9.         local v7 = strtrim(string(usdidr3[`i'], "%9.0fc"))
+ 10.         local v8 = strtrim(string(usdidr6[`i'], "%9.0fc")) + " [" + strtrim(string(lower80[`i'], "%9.0fc")) + "-" +
+>  strtrim(string(upper80[`i'], "%9.0fc")) + "]"
+ 11.         local txt `txt' text(`y' 3 "`sc'", place(e) size(small))
+ 12.         forval j = 2/8 {
+ 13.                 local x : word `j' of `cx'
+ 14.                 local txt `txt' text(`y' `x' "`v`j''", place(e) size(small))
+ 15.         }
+ 16. }
+
+. twoway scatteri 0 0 100 100, msymbol(none) xscale(off range(0 120)) yscale(off range(0 100)) ///
+>         xlabel(none) ylabel(none) `txt' ///
+>         yline(80, lcolor(gs10)) title("Ringkasan skenario USD/IDR (model $final_mode, anchor Sep-26 = `=strtrim(string
+> ($anchor_spot, "%9.0fc"))')", size(medium)) ///
+>         note("TB dan flows pada Adverse/Upside/Severe Adverse = median Baseline +/- shock (00_master.do). Rentang = in
+> terval prediktif 80%.", size(vsmall)) ///
+>         graphregion(color(white)) plotregion(style(none)) xsize(13) ysize(4) legend(off) name(scen_table, replace)
+
+. graph save "$gph\6_scenario_table.gph", replace
+(file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\6_scenario_table.gph not found)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\6_scenario_table.gph saved
+
+. graph export "$fig\6_scenario_table.png", replace width(2600)
+(file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\6_scenario_table.png not found)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\6_scenario_table.png saved as PNG format
+
+. 
+end of do-file
+
+. * 07: ekspor ringkasan Excel dan narasi hasil
+. do "$script\07_export.do"
+
+. **# 7. EKSPOR RINGKASAN, SETTINGS, DAN NARASI HASIL
+. * Rmd: chunk narasi-hasil, ekspor-audit.
+. * Output: tables/S0_settings, A0_database_imported; output/narasi_hasil.txt
+. *         (semua tabel juga ada sebagai sheet di output/rupiah_bvarx_results.xlsx)
+. 
+. **## 7.1 Settings penelitian (reproduksibilitas)
+. clear
+
+. local items profile include_ust run_sensitivity seed n_val n_test n_final horizons release_lag ///
+>         grid_start grid_p grid_lambda grid_soc best_start best_p best_lambda best_soc H_final final_mode cond_horizons
+>  ///
+>         dxy_shock tb_shock flows_shock dxy_severe tb_severe flows_severe
+
+. local n : word count `items'
+
+. set obs `=`n'+6'
+Number of observations (_N) was 0, now 32.
+
+. gen str24 setting = ""
+(32 missing values generated)
+
+. gen str60 value = ""
+(32 missing values generated)
+
+. local i 0
+
+. foreach s of local items {
+  2.         local ++i
+  3.         replace setting = "`s'" in `i'
+  4.         replace value = "${`s'}" in `i'
+  5. }
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+
+. local ++i
+
+. replace setting = "validation_origins" in `i'
+(1 real change made)
+
+. replace value = "`: di %tm $val_from' - `: di %tm $val_to'" in `i'
+(1 real change made)
+
+. local ++i
+
+. replace setting = "test_origins" in `i'
+(1 real change made)
+
+. replace value = "`: di %tm $test_from' - `: di %tm $test_to'" in `i'
+(1 real change made)
+
+. local ++i
+
+. replace setting = "latest_complete" in `i'
+(1 real change made)
+
+. replace value = "`: di %tm $latest_complete'" in `i'
+(1 real change made)
+
+. local ++i
+
+. replace setting = "final_origin" in `i'
+(1 real change made)
+
+. replace value = "`: di %tm $final_origin'" in `i'
+(1 real change made)
+
+. local ++i
+
+. replace setting = "stata_version" in `i'
+(1 real change made)
+
+. replace value = "`c(stata_version)' `c(edition_real)'" in `i'
+(1 real change made)
+
+. local ++i
+
+. replace setting = "run_date" in `i'
+(1 real change made)
+
+. replace value = "`c(current_date)' `c(current_time)'" in `i'
+(1 real change made)
+
+. list, noobs clean
+
+               setting                  value  
+               profile               standard  
+           include_ust                      0  
+       run_sensitivity                      1  
+                  seed               30102026  
+                 n_val                    200  
+                n_test                   1000  
+               n_final                   6000  
+              horizons                  1 3 6  
+           release_lag                      2  
+            grid_start         2013 2014 2017  
+                grid_p                    1 2  
+           grid_lambda              0.10 0.30  
+              grid_soc                    0 1  
+            best_start                   2014  
+                best_p                      1  
+           best_lambda                     .3  
+              best_soc                      0  
+               H_final                      6  
+            final_mode                changes  
+         cond_horizons                    3 6  
+             dxy_shock                   0.02  
+              tb_shock                      1  
+           flows_shock                     10  
+            dxy_severe                   0.05  
+             tb_severe                      2  
+          flows_severe                     30  
+    validation_origins       2021m1 -  2023m6  
+          test_origins       2024m1 -  2026m2  
+       latest_complete                 2026m8  
+          final_origin                 2026m9  
+         stata_version                19.5 MP  
+              run_date   30 Oct 2026 14:32:19  
+
+. bv_out tab "S0_settings"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/S0_settings.csv saved
+
+. 
+. **## 7.2 Database yang diimpor
+. use "$data\database.dta", clear
+
+. drop y_* dy_* x_* dx_* sin12 cos12 date
+
+. bv_out tab "A0_database_imported"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/A0_database_imported.csv saved
+
+. 
+. **## 7.3 Narasi hasil (terisi otomatis)
+. use "$data\test_scores_levels.dta", clear
+
+. tempname fh
+
+. file open `fh' using "$results\narasi_hasil.txt", write replace text
+
+. file write `fh' "NARASI HASIL (draft otomatis, profile = $profile)" _n _n
+
+. file write `fh' "Spesifikasi terpilih dalam grid menggunakan awal sampel $best_start, lag $best_p, dan lambda " %4.2f 
+> ($best_lambda) ", soc = $best_soc. "
+
+. file write `fh' "Pemilihannya menggunakan validation, sedangkan hasil berikut berasal dari test yang terpisah." _n _n
+
+. forval i = 1/`=_N' {
+  2.         file write `fh' "Pada horizon " %1.0f (horizon[`i']) " bulan, relative RMSE adalah " %5.3f (relative_rmse[`
+> i'])
+  3.         file write `fh' ", dengan RMSE BVARX " %7.1f (rmse_bvar[`i']) " dan RW " %7.1f (rmse_rw[`i']) " rupiah per 
+> USD. "
+  4.         if relative_rmse[`i'] < 1 file write `fh' "BVARX mempunyai error lebih kecil secara deskriptif pada horizon
+>  ini. "
+  5.         else file write `fh' "Random walk mempunyai error lebih kecil secara deskriptif pada horizon ini. "
+  6.         file write `fh' "Coverage 80%/95%: " %4.2f (coverage80[`i']) "/" %4.2f (coverage95[`i']) ". "
+  7.         file write `fh' "Temuan ini belum menyatakan keunggulan signifikan dan tetap bergantung pada information se
+> t serta vintage data." _n _n
+  8. }
+
+. use "$data\test_bootstrap.dta", clear
+
+. keep if block == 6
+(6 observations deleted)
+
+. forval i = 1/`=_N' {
+  2.         file write `fh' "Bootstrap (blok 6) h=" %1.0f (horizon[`i']) ": interval 95% relative RMSE " %5.3f (lower[`
+> i']) "-" %5.3f (upper[`i'])
+  3.         if covers_one[`i'] file write `fh' " (meliputi 1: belum ada bukti kuat mengungguli RW)." _n
+  4.         else file write `fh' " (tidak meliputi 1)." _n
+  5. }
+
+. file write `fh' _n
+
+. use "$data\scenario_spot.dta", clear
+
+. keep if mdate == $final_origin + $H_final
+(20 observations deleted)
+
+. forval i = 1/`=_N' {
+  2.         local sc : label scen `=scenario[`i']'
+  3.         file write `fh' "Skenario `sc': median USD/IDR pada `: di %tmMon_CCYY $final_origin + $H_final' adalah " %7
+> .0f (median[`i'])
+  4.         file write `fh' ", dengan rentang predictive 80% " %7.0f (lower80[`i']) "-" %7.0f (upper80[`i']) "." _n
+  5. }
+
+. file write `fh' _n "Bersyarat pada jalur DXY dan pembatasan observabel yang dijelaskan. Skenario adalah proyeksi bersa
+> ma model, bukan estimasi efek kausal tunggal." _n
+
+. file close `fh'
+
+. type "$results\narasi_hasil.txt"
+NARASI HASIL (draft otomatis, profile = standard)
+
+Spesifikasi terpilih dalam grid menggunakan awal sampel 2014, lag 1, dan lambda 0.30, soc = 0. Pemilihannya menggunakan 
+> validation, sedangkan hasil berikut berasal dari test yang terpisah.
+
+Pada horizon 1 bulan, relative RMSE adalah 1.288, dengan RMSE BVARX   331.6 dan RW   257.4 rupiah per USD. Random walk m
+> empunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.88/0.96. Temuan ini belum menyataka
+> n keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
+
+Pada horizon 3 bulan, relative RMSE adalah 1.365, dengan RMSE BVARX   743.1 dan RW   544.3 rupiah per USD. Random walk m
+> empunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.54/0.88. Temuan ini belum menyataka
+> n keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
+
+Pada horizon 6 bulan, relative RMSE adalah 1.660, dengan RMSE BVARX  1135.3 dan RW   683.8 rupiah per USD. Random walk m
+> empunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.42/0.62. Temuan ini belum menyataka
+> n keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
+
+Bootstrap (blok 6) h=1: interval 95% relative RMSE 0.970-2.564 (meliputi 1: belum ada bukti kuat mengungguli RW).
+Bootstrap (blok 6) h=3: interval 95% relative RMSE 0.868-2.221 (meliputi 1: belum ada bukti kuat mengungguli RW).
+Bootstrap (blok 6) h=6: interval 95% relative RMSE 1.088-2.235 (tidak meliputi 1).
+
+Skenario Baseline: median USD/IDR pada Mar 2027 adalah   18033, dengan rentang predictive 80%   16992-  19258.
+Skenario Adverse: median USD/IDR pada Mar 2027 adalah   18325, dengan rentang predictive 80%   17271-  19464.
+Skenario Upside: median USD/IDR pada Mar 2027 adalah   17754, dengan rentang predictive 80%   16718-  18872.
+Skenario Severe Adverse: median USD/IDR pada Mar 2027 adalah   18855, dengan rentang predictive 80%   17753-  20089.
+
+Bersyarat pada jalur DXY dan pembatasan observabel yang dijelaskan. Skenario adalah proyeksi bersama model, bukan estima
+> si efek kausal tunggal.
+
+. 
+end of do-file
+
+. * 08: perbandingan forecast akhir antar model (BVARX level/changes, RW, RW+drift, kombinasi)
+. do "$script\08_forecast_compare.do"
+
+. **# 8. PERBANDINGAN FORECAST AKHIR ANTAR MODEL (orientasi forecast operasional)
+. * Forecast Okt 2026 - Mar 2027 dari anchor final_origin, DXY datar (baseline).
+. * Model:
+. *   bvar_levels      BVARX level, spesifikasi terkunci (soc dari validation)
+. *   bvar_levels_soc  BVARX level + dummy sum-of-coefficients/initial-observation (soc = 1)
+. *   bvar_changes     BVARX changes (tanpa tarikan ke rata-rata)
+. *   rw               random walk tanpa drift
+. *   rw_drift         random walk + drift selisih suku bunga BI - Fed (logika forward rate)
+. *   combo            rata-rata median bvar_changes dan rw_drift
+. * Interval RW: volatilitas historis log-return bulanan seluruh sampel.
+. * Menulis: intermediate/forecast_compare.dta
+. * Output:  tables/T12_forecast_compare, T13_forecast_compare_wide; figures/8_forecast_compare.png
+. 
+. local chz = "strtoreal(tokens(st_global(" + char(34) + "cond_horizons" + char(34) + ")))"
+
+. tempfile acc
+
+. local first 1
+
+. local k 0
+
+. foreach spec in "levels $best_soc bvar_levels" "levels 1 bvar_levels_soc" "changes 0 bvar_changes" {
+  2.         local ++k
+  3.         tokenize `spec'
+  4.         use "$data\database.dta", clear
+  5.         mata: D = bv_load("`1'")
+  6.         mata: bv_final_run($latest_complete, $final_origin, $H_final, $best_start, $best_p, $best_lambda, ///
+>                 $include_ust, $n_final, $shock_mat, `chz', `2')
+  7.         mata: bv_tostata(select(FIN_tab, FIN_tab[., 1] :== 1), ("scenario", "mdate", "lower95", "lower80", "median"
+> , "upper80", "upper95", "ess", "ess_ratio"))
+  8.         gen str16 model = "`3'"
+  9.         gen byte model_id = `k'
+ 10.         drop scenario ess ess_ratio
+ 11.         if !`first' append using `acc'
+ 12.         save `acc', replace
+ 13.         local first 0
+ 14. }
+(file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp not found)
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000001.tmp saved as .dta format
+
+. 
+. **## 8.1 Random walk dan random walk + drift
+. use "$data\database.dta", clear
+
+. tsset mdate, monthly
+
+Time variable: mdate, 2013m1 to 2026m9
+        Delta: 1 month
+
+. gen double dl = D.y_s/100
+(1 missing value generated)
+
+. qui sum dl
+
+. local sig = r(sd)
+
+. qui sum usdidr if mdate == $final_origin
+
+. local s0 = r(mean)
+
+. qui sum bi_ff_diff_pp if mdate == $final_origin
+
+. local drift = r(mean)/100/12
+
+. di "Anchor " %9.0f `s0' "; vol bulanan " %6.4f `sig' "; drift per bulan (BI-Fed/12) " %7.5f `drift'
+Anchor     17870; vol bulanan 0.0234; drift per bulan (BI-Fed/12) 0.00156
+
+. clear
+
+. set obs $H_final
+Number of observations (_N) was 0, now 6.
+
+. gen mdate = $final_origin + _n
+
+. gen h = _n
+
+. expand 2
+(6 observations created)
+
+. bysort mdate: gen byte rwtype = _n
+
+. gen double dr = cond(rwtype == 2, `drift', 0)
+
+. gen double median  = `s0'*exp(dr*h)
+
+. gen double lower80 = `s0'*exp(dr*h + invnormal(0.10)*sqrt(h)*`sig')
+
+. gen double upper80 = `s0'*exp(dr*h + invnormal(0.90)*sqrt(h)*`sig')
+
+. gen double lower95 = `s0'*exp(dr*h + invnormal(0.025)*sqrt(h)*`sig')
+
+. gen double upper95 = `s0'*exp(dr*h + invnormal(0.975)*sqrt(h)*`sig')
+
+. gen str16 model = cond(rwtype == 1, "rw", "rw_drift")
+
+. gen byte model_id = cond(rwtype == 1, 4, 5)
+
+. drop h rwtype dr
+
+. append using `acc'
+(variable mdate was float, now double to accommodate using data's values)
+
+. 
+. **## 8.2 Kombinasi: rata-rata median bvar_changes dan rw_drift
+. preserve
+
+.         keep if inlist(model, "bvar_changes", "rw_drift")
+(18 observations deleted)
+
+.         collapse (mean) median lower80 upper80 lower95 upper95, by(mdate)
+
+.         gen str16 model = "combo"
+
+.         gen byte model_id = 6
+
+.         tempfile cb
+
+.         save `cb'
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000003.tmp saved as .dta format
+
+. restore
+
+. append using `cb'
+
+. gen double spot_anchor = `s0'
+
+. gen double pct_vs_anchor = 100*(median/spot_anchor - 1)
+
+. sort model_id mdate
+
+. order model_id model mdate lower95 lower80 median upper80 upper95 pct_vs_anchor
+
+. format mdate %tm
+
+. format lower* median upper* spot_anchor %9.0f
+
+. format pct_vs_anchor %6.2f
+
+. save "$data\forecast_compare.dta", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\forecast_compare.dta saved
+
+. list model mdate lower80 median upper80 pct_vs_anchor, noobs sepby(model)
+
+  +-------------------------------------------------------------------+
+  |           model     mdate   lower80   median   upper80   pct_vs~r |
+  |-------------------------------------------------------------------|
+  |     bvar_levels   2026m10     17075    17579     18060      -1.63 |
+  |     bvar_levels   2026m11     16692    17333     18002      -3.01 |
+  |     bvar_levels   2026m12     16419    17141     17909      -4.08 |
+  |     bvar_levels    2027m1     16187    16992     17868      -4.91 |
+  |     bvar_levels    2027m2     16052    16878     17798      -5.55 |
+  |     bvar_levels    2027m3     15934    16798     17747      -6.00 |
+  |-------------------------------------------------------------------|
+  | bvar_levels_soc   2026m10     17122    17610     18109      -1.46 |
+  | bvar_levels_soc   2026m11     16756    17388     18048      -2.70 |
+  | bvar_levels_soc   2026m12     16477    17206     17987      -3.72 |
+  | bvar_levels_soc    2027m1     16266    17069     17927      -4.48 |
+  | bvar_levels_soc    2027m2     16117    16961     17875      -5.09 |
+  | bvar_levels_soc    2027m3     15994    16904     17841      -5.41 |
+  |-------------------------------------------------------------------|
+  |    bvar_changes   2026m10     17385    17876     18350       0.03 |
+  |    bvar_changes   2026m11     17227    17892     18548       0.12 |
+  |    bvar_changes   2026m12     17102    17906     18719       0.20 |
+  |    bvar_changes    2027m1     17021    17941     18904       0.40 |
+  |    bvar_changes    2027m2     16983    17988     19085       0.66 |
+  |    bvar_changes    2027m3     16992    18033     19258       0.91 |
+  |-------------------------------------------------------------------|
+  |              rw   2026m10     17341    17870     18415       0.00 |
+  |              rw   2026m11     17127    17870     18646       0.00 |
+  |              rw   2026m12     16964    17870     18825       0.00 |
+  |              rw    2027m1     16828    17870     18977       0.00 |
+  |              rw    2027m2     16709    17870     19112       0.00 |
+  |              rw    2027m3     16602    17870     19235       0.00 |
+  |-------------------------------------------------------------------|
+  |        rw_drift   2026m10     17368    17898     18444       0.16 |
+  |        rw_drift   2026m11     17180    17926     18704       0.31 |
+  |        rw_drift   2026m12     17043    17954     18913       0.47 |
+  |        rw_drift    2027m1     16933    17982     19096       0.63 |
+  |        rw_drift    2027m2     16840    18010     19262       0.78 |
+  |        rw_drift    2027m3     16758    18038     19416       0.94 |
+  |-------------------------------------------------------------------|
+  |           combo   2026m10     17377    17887     18397       0.10 |
+  |           combo   2026m11     17203    17909     18626       0.22 |
+  |           combo   2026m12     17073    17930     18816       0.33 |
+  |           combo    2027m1     16977    17962     19000       0.51 |
+  |           combo    2027m2     16912    17999     19173       0.72 |
+  |           combo    2027m3     16875    18036     19337       0.93 |
+  +-------------------------------------------------------------------+
+
+. bv_out tab "T12_forecast_compare"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T12_forecast_compare.csv saved
+
+. 
+. * Tabel ringkas: median per model (kolom) per bulan (baris)
+. preserve
+
+.         keep model mdate median
+
+.         replace median = round(median)
+(30 real changes made)
+
+.         reshape wide median, i(mdate) j(model) string
+(j = bvar_changes bvar_levels bvar_levels_soc combo rw rw_drift)
+
+Data                               Long   ->   Wide
+-----------------------------------------------------------------------------
+Number of observations               36   ->   6           
+Number of variables                   3   ->   7           
+j variable (6 values)             model   ->   (dropped)
+xij variables:
+                                 median   ->   medianbvar_changes medianbvar_levels ... medianrw_drift
+-----------------------------------------------------------------------------
+
+.         rename median* *
+
+.         list, noobs clean
+
+      mdate   bvar_c~s   bvar_l~s   bvar_l~c   combo      rw   rw_drift  
+    2026m10      17876      17579      17610   17887   17870      17898  
+    2026m11      17892      17333      17388   17909   17870      17926  
+    2026m12      17906      17141      17206   17930   17870      17954  
+     2027m1      17941      16992      17069   17962   17870      17982  
+     2027m2      17988      16878      16961   17999   17870      18010  
+     2027m3      18033      16798      16904   18036   17870      18038  
+
+.         bv_out tab "T13_forecast_compare_wide"
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T13_forecast_compare_wide.csv saved
+
+. restore
+
+. 
+. **## 8.3 Grafik
+. keep model_id mdate median
+
+. reshape wide median, i(mdate) j(model_id)
+(j = 1 2 3 4 5 6)
+
+Data                               Long   ->   Wide
+-----------------------------------------------------------------------------
+Number of observations               36   ->   6           
+Number of variables                   3   ->   7           
+j variable (6 values)          model_id   ->   (dropped)
+xij variables:
+                                 median   ->   median1 median2 ... median6
+-----------------------------------------------------------------------------
+
+. tempfile w
+
+. save `w'
+file C:\Users\LENOVO05\AppData\Local\Temp\ST_3048_000005.tmp saved as .dta format
+
+. use mdate usdidr using "$data\database.dta", clear
+
+. keep if mdate > $final_origin - 24 & mdate <= $final_origin
+(141 observations deleted)
+
+. append using `w'
+(variable mdate was int, now double to accommodate using data's values)
+
+. sort mdate
+
+. forval m = 1/6 {
+  2.         replace median`m' = usdidr if mdate == $final_origin
+  3. }
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+
+. twoway (line usdidr mdate, lcolor(black) lwidth(medthick)) ///
+>         (line median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
+>         (line median2 mdate, lcolor("24 90 141") lpattern(dash)) ///
+>         (line median3 mdate, lcolor("35 114 74") lwidth(medthick)) ///
+>         (line median4 mdate, lcolor(gs8) lpattern(shortdash)) ///
+>         (line median5 mdate, lcolor("164 87 23") lwidth(medthick)) ///
+>         (line median6 mdate, lcolor(purple) lwidth(medthick) lpattern(longdash)), ///
+>         xline($final_origin, lcolor(gs10) lpattern(dot)) ///
+>         title("USD/IDR: forecast median per model (DXY datar)", size(medium)) ///
+>         xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
+>         legend(order(1 "Aktual" 2 "BVARX level" 3 "BVARX level + dummy" 4 "BVARX changes" ///
+>                 5 "Random walk" 6 "RW + drift BI-Fed" 7 "Kombinasi") rows(2) size(small) position(6)) ///
+>         graphregion(color(white)) name(fc_compare, replace)
+
+. graph save "$gph\8_forecast_compare.gph", replace
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\8_forecast_compare.gph saved
+
+. graph export "$fig\8_forecast_compare.png", replace width(1800)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\8_forecast_compare.png saved as PNG format
+
+. 
+end of do-file
+
+. 
+. timer off 1
+
+. timer list 1
+   1:     56.36 /        1 =      56.3610
+
+. di "Selesai: `c(current_date)' `c(current_time)'"
+Selesai: 30 Oct 2026 14:32:30
+
+. log close main
+      name:  main
+       log:  C:\Users\LENOVO05\github\Simulasi-Rupiah\output\run_log.log
+  log type:  text
+ closed on:  30 Oct 2026, 14:32:30
+------------------------------------------------------------------------------------------------------------------------

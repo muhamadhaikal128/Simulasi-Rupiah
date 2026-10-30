@@ -1,7 +1,6 @@
 setting,value
 profile,standard
 include_ust,0
-run_sensitivity,1
 seed,30102026
 n_val,200
 n_test,1000
@@ -11,13 +10,12 @@ release_lag,2
 grid_start,2013 2014 2017
 grid_p,1 2
 grid_lambda,0.10 0.30
-grid_soc,0 1
-best_start,2014
-best_p,1
-best_lambda,.3
-best_soc,0
+best_start,2013
+best_p,2
+best_lambda,.1
 H_final,6
-final_mode,changes
+model_mode,changes
+seas_harm,2
 cond_horizons,3 6
 dxy_shock,0.02
 tb_shock,1
@@ -30,4 +28,4 @@ test_origins, 2024m1 -  2026m2
 latest_complete, 2026m8
 final_origin, 2026m9
 stata_version,19.5 MP
-run_date,30 Oct 2026 14:32:19
+run_date,30 Oct 2026 14:53:45

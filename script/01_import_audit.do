@@ -2,7 +2,7 @@
 * Rmd: chunk impor-database, audit-flow-dan-deskriptif, unit-root-opsional.
 * Menulis: intermediate/database.dta, flow_components.dta, sources.dta, rating_events.dta,
 *          audit_missing.dta, descriptive.dta, unit_root.dta
-* Output:  tables/A0_*, T1_descriptive; diagnostics/D1_audit_missing, D2_unit_root_adf;
+* Output:  tables/A0_*, T1_descriptive; diagnostics/D1_audit_missing, D2_unit_root;
 *          figures/1_data_series.png
 
 **## 1.1 Sheet pendukung
@@ -86,6 +86,9 @@ gen double dx_dxy  = D.x_dxy
 gen double x_ust   = ust10y_pct
 gen double sin12   = sin(2*_pi*month/12)
 gen double cos12   = cos(2*_pi*month/12)
+* harmonik kedua (periode 6 bulan) untuk musiman trade balance
+gen double sin6    = sin(4*_pi*month/12)
+gen double cos6    = cos(4*_pi*month/12)
 gen date = dofm(mdate)
 format date %td
 label var y_s "100 log USD/IDR"
@@ -119,10 +122,11 @@ graph combine g1 g2 g3 g4, cols(2) graphregion(color(white)) name(data_series, r
 graph save "$gph\1_data_series.gph", replace
 graph export "$fig\1_data_series.png", replace width(1800)
 
-**## 1.6 Unit root (ADF), sampel 2014+ dengan data inti lengkap
-* Lag ADF 0-6 dipilih dengan BIC pada sampel yang sama (setara ur.df selectlags="BIC").
-* H0 = unit root. Bukan aturan otomatis untuk mendiferensiasi; tidak membuktikan kointegrasi.
-* Dilewati jika global run_adf = 0 (lihat 00_master.do).
+**## 1.6 Unit root: ADF dan Phillips-Perron, sampel 2014+ dengan data inti lengkap
+* H0 = unit root. p < 0,05 -> tolak H0 (stasioner). Pembenaran model changes: level kurs, cadangan,
+* DXY diharapkan unit root, perubahannya stasioner. Bukan bukti kointegrasi.
+* Lag ADF 0-6 dipilih dengan BIC pada sampel bersama (setara ur.df selectlags = "BIC").
+* Tiap seri dibungkus capture: satu seri gagal tidak menghentikan run; progres dicetak per seri.
 if $run_adf {
 preserve
 	keep if year >= 2014 & complete_check == 1
@@ -133,39 +137,58 @@ preserve
 	gen double d_l_usdidr = D.l_usdidr
 	gen double d_l_res = D.l_res
 	gen double d_l_dxy = D.l_dxy
+	gen double tb = trade_bal_usdbn
+	gen double flows = net_flows_idrtn
+	gen double trend_t = _n
 	tempname pu
-	postfile `pu' str16 series str8 det lags N tau pvalue using "$data\unit_root.dta", replace
-	* level dengan trend; perubahan/arus dengan konstanta saja
+	postfile `pu' str16 series str8 det lags N adf_tau adf_p pp_z pp_p rc using "$data\unit_root.dta", replace
+	* level dengan trend; perubahan dan arus dengan konstanta saja
 	foreach spec in "l_usdidr trend" "d_l_usdidr drift" "l_res trend" "d_l_res drift" ///
-		"l_dxy trend" "d_l_dxy drift" "trade_bal_usdbn drift" "net_flows_idrtn drift" {
+		"l_dxy trend" "d_l_dxy drift" "tb drift" "flows drift" {
 		gettoken v det : spec
 		local det = strtrim("`det'")
-		local tr = cond("`det'" == "trend", "_trend", "")
-		cap drop _trend
-		gen _trend = _n
-		* sampel bersama untuk semua lag (lag maksimum 6)
-		qui reg D.`v' L.`v' `tr' L(1/6)D.`v'
-		tempvar s
-		gen byte `s' = e(sample)
-		local best 0
-		local bic_best .
-		forval k = 0/6 {
-			if `k' == 0 qui reg D.`v' L.`v' `tr' if `s'
-			else qui reg D.`v' L.`v' `tr' L(1/`k')D.`v' if `s'
-			local bic = -2*e(ll) + e(rank)*ln(e(N))
-			if `bic' < `bic_best' {
-				local bic_best = `bic'
-				local best = `k'
+		local tr = cond("`det'" == "trend", "trend_t", "")
+		local ppopt = cond("`det'" == "trend", "trend", "")
+		di as txt "Unit root: `v' (`det')"
+		local best .
+		local N .
+		local tau .
+		local p .
+		local ppz .
+		local ppp .
+		capture noisily {
+			* sampel bersama untuk semua lag (lag maksimum 6)
+			qui regress D.`v' L.`v' `tr' L(1/6)D.`v'
+			tempvar s
+			qui gen byte `s' = e(sample)
+			local best 0
+			local bic_best = .
+			forval k = 0/6 {
+				if `k' == 0 qui regress D.`v' L.`v' `tr' if `s'
+				else qui regress D.`v' L.`v' `tr' L(1/`k')D.`v' if `s'
+				local bic = -2*e(ll) + e(rank)*ln(e(N))
+				if `bic' < `bic_best' {
+					local bic_best = `bic'
+					local best = `k'
+				}
 			}
+			qui dfuller `v', `det' lags(`best')
+			local N = r(N)
+			local tau = r(Zt)
+			local p = r(p)
+			qui pperron `v', `ppopt' lags(4)
+			local ppz = r(Zt)
+			local ppp = r(p)
 		}
-		qui dfuller `v', `det' lags(`best')
-		post `pu' ("`v'") ("`det'") (`best') (r(N)) (r(Zt)) (r(p))
+		local rc = _rc
+		post `pu' ("`v'") ("`det'") (`best') (`N') (`tau') (`p') (`ppz') (`ppp') (`rc')
 	}
 	postclose `pu'
 	use "$data\unit_root.dta", clear
-	gen str24 conclusion = cond(pvalue < 0.05, "tolak H0 (stasioner)", "gagal tolak H0 (unit root)")
-	format tau pvalue %8.3f
+	gen str28 adf_conclusion = cond(rc != 0, "gagal dihitung", cond(adf_p < 0.05, "stasioner (tolak H0)", "unit root (gagal tolak H0)"))
+	gen str28 pp_conclusion = cond(rc != 0, "gagal dihitung", cond(pp_p < 0.05, "stasioner (tolak H0)", "unit root (gagal tolak H0)"))
+	format adf_tau adf_p pp_z pp_p %8.3f
 	list, noobs clean
-	bv_out diag "D2_unit_root_adf"
+	bv_out diag "D2_unit_root"
 restore
 }

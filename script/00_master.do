@@ -1,4 +1,5 @@
 **# 0. MASTER: Forecast dan skenario USD/IDR dengan BVARX
+* v3: semua tahap memakai BVARX changes (lihat CHANGELOG.md).
 * Port Stata dari input/reference/Manual_Model_Rupiah_BVARX.Rmd (versi R).
 * Jalankan seluruh file ini sebagai do-file: do "script/00_master.do".
 * Tutup Database_Rupiah_Bulanan.xlsx dan output Excel di Excel sebelum menjalankan.
@@ -52,15 +53,55 @@ program define bv_out
 	}
 end
 
+* bv_pngtable: render variabel string di memori sebagai tabel PNG (satu baris per observasi)
+*   heads() = judul kolom (dalam tanda kutip), widths() = lebar tiap kolom (satuan kanvas)
+cap program drop bv_pngtable
+program define bv_pngtable
+	syntax varlist, File(string) Title(string) Heads(string asis) Widths(numlist) [Note(string)]
+	local nv : word count `varlist'
+	local nr = _N
+	local x 2
+	local j 0
+	foreach w of numlist `widths' {
+		local ++j
+		local x`j' = `x'
+		local x = `x' + `w'
+	}
+	local xmax = `x'
+	local step = 88/(`nr' + 1)
+	local txt ""
+	forval j = 1/`nv' {
+		local h : word `j' of `heads'
+		local txt `txt' text(96 `x`j'' "`h'", place(e) size(small) color(black))
+	}
+	forval i = 1/`nr' {
+		local y = 96 - `step'*`i'
+		local j 0
+		foreach v of local varlist {
+			local ++j
+			local s = `v'[`i']
+			local txt `txt' text(`y' `x`j'' "`s'", place(e) size(small))
+		}
+	}
+	local yl = 96 - `step'/2
+	twoway scatteri 0 0 100 `xmax', msymbol(none) xscale(off range(0 `xmax')) yscale(off range(0 100)) ///
+		xlabel(none) ylabel(none) `txt' yline(`yl', lcolor(gs10)) ///
+		title(`"`title'"', size(medium)) note(`"`note'"', size(vsmall)) ///
+		graphregion(color(white)) plotregion(style(none)) legend(off) ///
+		xsize(`=max(8, `xmax'/9)') ysize(`=max(3, 1.2 + 0.45*`nr')') name(pngtab, replace)
+	graph export "`file'", replace width(2400)
+end
+
 **## 0.1 Parameter manual (setara blok params di Rmd)
 * profile: quick (cek alur) | standard | publication (angka untuk naskah)
 global profile "standard"
 * 1 = tambahkan UST10Y sebagai eksogen (putuskan di tahap validation)
 global include_ust 0
-* 1 = jalankan sensitivity spesifikasi changes
-global run_sensitivity 1
-* 1 = jalankan uji ADF (01, bagian 1.6). Sementara 0: loop ADF macet di sesi MCP, sedang di-debug
-global run_adf 0
+* Jumlah harmonik musiman sin/cos: 1 = periode 12 bulan (manual), 2 = + periode 6 bulan
+* (residual trade balance v2 masih berautokorelasi di lag 6 dan 12)
+global seas_harm 2
+* 1 = jalankan uji unit root ADF + Phillips-Perron (01, bagian 1.6)
+global run_adf 1
 * Seed utama (setara set.seed(30102026) di Rmd)
 global seed 30102026
 
@@ -93,18 +134,16 @@ global release_lag 2
 global grid_start "2013 2014 2017"
 global grid_p "1 2"
 global grid_lambda "0.10 0.30"
-* Dummy sum-of-coefficients/initial-observation: 0 = prior manual, 1 = aktif (tightness 1)
-global grid_soc "0 1"
 * Origin validation (Jan 2021 - Jun 2023) dan awal test (Jan 2024)
 global val_from = ym(2021,1)
 global val_to   = ym(2023,6)
 global test_from = ym(2024,1)
 * Horizon final forecast dan skenario
 global H_final 6
-* Model untuk forecast akhir dan skenario (06): levels | changes.
-* changes dipilih karena test 2024-2026: relative RMSE 1.07/1.04/0.95 vs levels 1.29/1.37/1.66
-* (levels menarik kurs ke rata-rata sampel). Levels tetap dibandingkan di 08.
-global final_mode "changes"
+* Model: BVARX dalam perubahan (changes) untuk validation, test, forecast, dan skenario.
+* USD/IDR, cadangan, DXY = perubahan 100*log bulanan; TB dan flows = arus bulanan.
+* Versi level (v1-v2, menarik kurs ke rata-rata sampel) diarsipkan di archive/v2_levels/.
+global model_mode "changes"
 * Skenario ilustratif: titik pembatas (bulan ke-) dan besaran shock
 global cond_horizons "3 6"
 * Adverse / Upside: DXY +/-2% pada akhir horizon, TB -/+ USD1 bn, flows -/+ Rp10 tn
@@ -139,13 +178,11 @@ do "$script\02_bvarx_functions.do"
 do "$script\03_validation.do"
 * 04: test terkunci vs random walk, bootstrap relative RMSE
 do "$script\04_test.do"
-* 05: sensitivity changes
-if $run_sensitivity do "$script\05_sensitivity.do"
 * 06: fit akhir, diagnostik, baseline dan skenario bersyarat
 do "$script\06_final_scenarios.do"
 * 07: ekspor ringkasan Excel dan narasi hasil
 do "$script\07_export.do"
-* 08: perbandingan forecast akhir antar model (BVARX level/changes, RW, RW+drift, kombinasi)
+* 08: perbandingan forecast akhir: BVARX changes, random walk, random walk + drift, kombinasi
 do "$script\08_forecast_compare.do"
 
 timer off 1

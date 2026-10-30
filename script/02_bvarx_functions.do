@@ -20,6 +20,7 @@ mata set matastrict on
 struct bvdata {
 	real colvector mdate, usdidr, dxy, ust
 	real matrix Y, Xall
+	real scalar nharm
 	string scalar mode
 }
 
@@ -49,17 +50,19 @@ struct bvdata scalar bv_load(string scalar mode)
 	struct bvdata scalar d
 	if (mode != "levels" & mode != "changes") _error("mode harus levels atau changes")
 	d.mode   = mode
+	d.nharm  = strtoreal(st_global("seas_harm"))
+	if (missing(d.nharm)) d.nharm = 1
 	d.mdate  = st_data(., "mdate")
 	d.usdidr = st_data(., "usdidr")
 	d.dxy    = st_data(., "dxy")
 	d.ust    = st_data(., "x_ust")
 	if (mode == "levels") {
 		d.Y    = st_data(., ("y_s", "y_tb", "y_flows", "y_res"))
-		d.Xall = st_data(., ("x_dxy", "x_ust", "sin12", "cos12"))
+		d.Xall = st_data(., ("x_dxy", "x_ust", "sin12", "cos12", "sin6", "cos6"))
 	}
 	else {
 		d.Y    = st_data(., ("dy_s", "y_tb", "y_flows", "dy_res"))
-		d.Xall = st_data(., ("dx_dxy", "x_ust", "sin12", "cos12"))
+		d.Xall = st_data(., ("dx_dxy", "x_ust", "sin12", "cos12", "sin6", "cos6"))
 	}
 	if (any((d.mdate[|2 \ rows(d.mdate)|] - d.mdate[|1 \ rows(d.mdate)-1|]) :!= 1)) {
 		_error("mdate harus berurutan tanpa celah")
@@ -128,6 +131,8 @@ struct bvfit scalar bv_fit(struct bvdata scalar d, real scalar cutoff, real scal
 
 	K = cols(d.Y)
 	f.xc = inc_ust ? (1, 2, 3, 4) : (1, 3, 4)
+	// harmonik musiman kedua (periode 6 bulan), global seas_harm = 2
+	if (d.nharm >= 2) f.xc = f.xc, (5, 6)
 	idx = selectindex(d.mdate :>= 12*(start_year - 1960) :& d.mdate :<= cutoff)
 	idx = select(idx, idx :> p)
 	good = J(rows(idx), 1, 0)
@@ -271,7 +276,7 @@ struct bvfut scalar bv_future(struct bvfit scalar f, struct bvdata scalar d, rea
 	}
 	else xd = logdxy
 	mon = mod(u.times, 12) :+ 1
-	Xall = xd, u.ust, sin(2*pi()*mon/12), cos(2*pi()*mon/12)
+	Xall = xd, u.ust, sin(2*pi()*mon/12), cos(2*pi()*mon/12), sin(4*pi()*mon/12), cos(4*pi()*mon/12)
 	u.X = Xall[., f.xc]
 	// Kondisi: kolom (step, variabel 1..4, nilai). Bridge USD/IDR teramati.
 	u.cond = J(0, 3, .)
@@ -559,11 +564,30 @@ real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scala
 	return(X)
 }
 
+// Efek kontemporer DXY (dampak bulan yang sama) per persamaan, satuan asli model:
+// +1 unit x_dxy (= +1% DXY pada model changes) -> perubahan y_j. Posterior marginal C_ij
+// adalah matrix-t: mean Cn_ij, varians Vn_ii * Sn_jj / (nu - K - 1).
+// Keluaran K x 3: (persamaan, mean, sd).
+real matrix bv_dxy_effect(struct bvfit scalar f)
+{
+	real matrix R
+	real scalar r, j, sc
+	r = 1 + f.K*f.p + 1
+	R = J(f.K, 3, .)
+	for (j = 1; j <= f.K; j++) {
+		sc = f.sy[j]/f.sx[1]
+		R[j, 1] = j
+		R[j, 2] = f.Cn[r, j]*sc
+		R[j, 3] = sqrt(f.Vn[r, r]*f.Sn[j, j]/(f.nu - f.K - 1))*sc
+	}
+	return(R)
+}
+
 // shock = matriks 3 x 3: baris = skenario Adverse, Upside, Severe Adverse; kolom = (pertumbuhan DXY, delta TB USD bn, delta flows Rp tn)
 void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar lambda, real scalar inc_ust, real scalar nd, real matrix shock, real rowvector chz, real scalar soc)
 {
 	external struct bvdata scalar D
-	external real matrix FIN_resid, FIN_tab, FIN_diag, FIN_cond, FIN_glob, FIN_vars, FIN_info
+	external real matrix FIN_resid, FIN_tab, FIN_diag, FIN_cond, FIN_glob, FIN_vars, FIN_info, FIN_dxy
 	struct bvfit scalar f
 	struct bvfut scalar ub, u
 	struct bvpred scalar pb, ps
@@ -575,6 +599,7 @@ void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real sc
 	f = bv_fit(D, cutoff, sy0, p, lambda, inc_ust, soc)
 	FIN_resid = D.mdate[f.idx], f.resid
 	FIN_info = (f.n, D.mdate[f.idx[1]], f.cutoff, origin)
+	FIN_dxy = bv_dxy_effect(f)
 
 	ub = bv_future(f, D, origin, H, 0, 0)
 	// Bridge makro yang sudah tersedia di snapshot (variabel 2..4)

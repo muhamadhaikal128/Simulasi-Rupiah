@@ -1,0 +1,9 @@
+series,det,lags,N,adf_tau,adf_p,pp_z,pp_p,rc,adf_conclusion,pp_conclusion
+l_usdidr,trend,0,151,-3.7817934,.017505197,-3.6952133,.022674417,0,stasioner (tolak H0),stasioner (tolak H0)
+d_l_usdidr,drift,0,150,-13.321113,0,-13.832891,7.5352363e-26,0,stasioner (tolak H0),stasioner (tolak H0)
+l_res,trend,0,151,-2.6443462,.25990832,-2.7990355,.19729885,0,unit root (gagal tolak H0),unit root (gagal tolak H0)
+d_l_res,drift,0,150,-11.814283,0,-11.807511,9.0226200e-22,0,stasioner (tolak H0),stasioner (tolak H0)
+l_dxy,trend,0,151,-2.7140577,.23029211,-2.8550053,.17747545,0,unit root (gagal tolak H0),unit root (gagal tolak H0)
+d_l_dxy,drift,0,150,-11.444625,0,-11.447227,5.9774814e-21,0,stasioner (tolak H0),stasioner (tolak H0)
+tb,drift,1,150,-3.2805426,.00064695778,-5.0961361,.00001427198,0,stasioner (tolak H0),stasioner (tolak H0)
+flows,drift,0,151,-10.332135,0,-10.41838,1.7303193e-18,0,stasioner (tolak H0),stasioner (tolak H0)
