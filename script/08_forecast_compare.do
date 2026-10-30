@@ -78,8 +78,9 @@ preserve
 	bv_out tab "T13_forecast_compare_wide"
 restore
 
-**## 8.4 Grafik
+**## 8.4 Grafik (hanya BVARX dan random walk; RW + drift dan kombinasi tetap di tabel T12/T13)
 preserve
+	keep if inlist(model_id, 1, 2)
 	keep model_id mdate median
 	reshape wide median, i(mdate) j(model_id)
 	tempfile w
@@ -88,22 +89,20 @@ preserve
 	keep if mdate > $final_origin - 24 & mdate <= $final_origin
 	append using `w'
 	sort mdate
-	forval m = 1/4 {
+	forval m = 1/2 {
 		replace median`m' = usdidr if mdate == $final_origin
 	}
 	twoway (line usdidr mdate, lcolor(black) lwidth(medthick)) ///
 		(line median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
-		(line median2 mdate, lcolor(gs8) lpattern(shortdash)) ///
-		(line median3 mdate, lcolor("164 87 23") lwidth(medthick) lpattern(dash)) ///
-		(line median4 mdate, lcolor(purple) lwidth(medthick) lpattern(longdash)), ///
+		(line median2 mdate, lcolor("164 87 23") lpattern(shortdash)), ///
 		xline($final_origin, lcolor(gs10) lpattern(dot)) ///
-		title("USD/IDR: forecast median BVARX vs benchmark (Baseline, DXY datar)", size(medium)) ///
+		title("USD/IDR: forecast median BVARX vs random walk (Baseline, DXY datar)", size(medium)) ///
 		xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
-		legend(order(1 "Aktual" 2 "BVARX ($model_mode)" 3 "Random walk" 4 "RW + drift BI-Fed" 5 "Kombinasi") ///
+		legend(order(1 "Aktual" 2 "BVARX ($model_mode)" 3 "Random walk") ///
 			rows(1) size(small) position(6)) ///
 		graphregion(color(white)) name(fc_compare, replace)
 	graph save "$gph\8_forecast_compare.gph", replace
-	graph export "$fig\8_forecast_compare.png", replace width(1800)
+	graph export "$fig_bvarx\8_forecast_compare.png", replace width(1800)
 restore
 
 **## 8.5 Tabel PNG: forecast median [rentang 80%] per model
@@ -117,13 +116,14 @@ preserve
 		local sc `sc'`sep'`=strtrim(string(relative_rmse[`i'], "%4.2f"))'
 	}
 restore
+keep if inlist(model_id, 1, 2)
 gen str32 cell = strtrim(string(median, "%9.0fc")) + "  [" + strtrim(string(lower80, "%9.0fc")) + " - " + strtrim(string(upper80, "%9.0fc")) + "]"
 keep model_id mdate cell
 reshape wide cell, i(mdate) j(model_id)
 gen str12 bulan = string(mdate, "%tmMon_CCYY")
 sort mdate
-bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\8_forecast_compare_table.png") ///
+bv_pngtable bulan cell1 cell2, file("$fig_bvarx\8_forecast_compare_table.png") ///
 	title("Forecast USD/IDR per model: median [rentang 80%] (Baseline, DXY datar)") ///
-	heads("Bulan" "BVARX ($model_mode)" "Random walk" "RW + drift BI-Fed" "Kombinasi") ///
-	widths(14 26 26 26 26) ///
-	note("Kombinasi = rata-rata BVARX dan RW + drift. Test 2024-2026, relative RMSE BVARX vs random walk (h = 1/3/6): `sc' (< 1 = lebih akurat).")
+	heads("Bulan" "BVARX ($model_mode)" "Random walk") ///
+	widths(14 30 30) ///
+	note("Test 2024-2026, relative RMSE BVARX vs random walk (h = 1/3/6): `sc' (< 1 = lebih akurat).")

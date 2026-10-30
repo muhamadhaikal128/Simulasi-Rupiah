@@ -18,7 +18,7 @@ mata:
 mata set matastrict on
 
 struct bvdata {
-	real colvector mdate, usdidr, dxy, ust
+	real colvector mdate, usdidr, dxy, ust, rate, vix
 	real matrix Y, Xall
 	real scalar nharm
 	string scalar mode
@@ -44,6 +44,24 @@ struct bvpred {
 	real scalar ess, ndraw, root_gt1, root_gt105
 }
 
+// Impulse dummy untuk bulan di global outlier_months (format "2020m3"): kolom per bulan,
+// 1 pada bulan itu, 0 lainnya (termasuk semua bulan forecast).
+real matrix bv_dummies(real colvector m)
+{
+	string rowvector ds
+	real matrix R
+	real scalar i, pm, mm
+	ds = tokens(st_global("outlier_months"))
+	R = J(rows(m), cols(ds), 0)
+	for (i = 1; i <= cols(ds); i++) {
+		pm = strpos(ds[i], "m")
+		if (pm < 5) _error("format bulan outlier harus YYYYmM: " + ds[i])
+		mm = 12*(strtoreal(substr(ds[i], 1, pm-1)) - 1960) + strtoreal(substr(ds[i], pm+1, .)) - 1
+		R[., i] = (m :== mm)
+	}
+	return(R)
+}
+
 // Muat data dari dataset Stata di memori (database.dta). mode = "levels" | "changes"
 struct bvdata scalar bv_load(string scalar mode)
 {
@@ -56,13 +74,17 @@ struct bvdata scalar bv_load(string scalar mode)
 	d.usdidr = st_data(., "usdidr")
 	d.dxy    = st_data(., "dxy")
 	d.ust    = st_data(., "x_ust")
+	d.rate   = st_data(., "bi_ff_diff_pp")
+	d.vix    = st_data(., "vix")
 	if (mode == "levels") {
 		d.Y    = st_data(., ("y_s", "y_tb", "y_flows", "y_res"))
-		d.Xall = st_data(., ("x_dxy", "x_ust", "sin12", "cos12", "sin6", "cos6"))
+		d.Xall = st_data(., ("x_dxy", "x_ust", "sin12", "cos12", "sin6", "cos6", "bi_ff_diff_pp", "x_vix"))
+		d.Xall = d.Xall, bv_dummies(d.mdate)
 	}
 	else {
 		d.Y    = st_data(., ("dy_s", "y_tb", "y_flows", "dy_res"))
-		d.Xall = st_data(., ("dx_dxy", "x_ust", "sin12", "cos12", "sin6", "cos6"))
+		d.Xall = st_data(., ("dx_dxy", "x_ust", "sin12", "cos12", "sin6", "cos6", "bi_ff_diff_pp", "dx_vix"))
+		d.Xall = d.Xall, bv_dummies(d.mdate)
 	}
 	if (any((d.mdate[|2 \ rows(d.mdate)|] - d.mdate[|1 \ rows(d.mdate)-1|]) :!= 1)) {
 		_error("mdate harus berurutan tanpa celah")
@@ -127,12 +149,18 @@ struct bvfit scalar bv_fit(struct bvdata scalar d, real scalar cutoff, real scal
 	real colvector idx, good, r, yj
 	real rowvector own, v0, arvar, ybar, xbar, zr
 	real matrix Y0, X0, Ys, Xs, Z, C0, V0i, E, D, S0, Xr, Yd, Zd, Ya, Za, Ea
-	real scalar K, i, j, l, T, nu0, last
+	real scalar K, i, j, l, T, nu0, last, tbm, kr
 
 	K = cols(d.Y)
 	f.xc = inc_ust ? (1, 2, 3, 4) : (1, 3, 4)
 	// harmonik musiman kedua (periode 6 bulan), global seas_harm = 2
 	if (d.nharm >= 2) f.xc = f.xc, (5, 6)
+	// selisih BI rate - Fed funds (level, pp): global use_rate = 1, atau use_uip = 1 (dengan prior UIP)
+	if (st_global("use_rate") == "1" | st_global("use_uip") == "1") f.xc = f.xc, 7
+	// VIX (perubahan log pada model changes), global use_vix = 1
+	if (st_global("use_vix") == "1") f.xc = f.xc, 8
+	// impulse dummy bulan ekstrem (kolom 9 dst.), global use_dum = 1
+	if (st_global("use_dum") == "1" & cols(d.Xall) > 8) f.xc = f.xc, (9..(cols(d.Xall)))
 	idx = selectindex(d.mdate :>= 12*(start_year - 1960) :& d.mdate :<= cutoff)
 	idx = select(idx, idx :> p)
 	good = J(rows(idx), 1, 0)
@@ -148,6 +176,9 @@ struct bvfit scalar bv_fit(struct bvdata scalar d, real scalar cutoff, real scal
 	Y0 = d.Y[idx, .]
 	f.my = mean(Y0)
 	f.sy = sqrt(diagonal(variance(Y0)))'
+	X0 = d.Xall[idx, f.xc]
+	// buang eksogen yang konstan di sampel training (mis. dummy di luar sampel)
+	f.xc = select(f.xc, (sqrt(diagonal(variance(X0)))' :> 0))
 	X0 = d.Xall[idx, f.xc]
 	f.mx = mean(X0)
 	f.sx = sqrt(diagonal(variance(X0)))'
@@ -167,14 +198,27 @@ struct bvfit scalar bv_fit(struct bvdata scalar d, real scalar cutoff, real scal
 		arvar[j] = max((mean(r:^2), 1e-4))
 	}
 
-	// Prior: mean own first lag = 1 untuk level (log kurs, log cadangan), 0 lainnya
+	// Prior: mean own first lag = 1 untuk level (log kurs, log cadangan), 0 lainnya.
+	// Model changes: TB tetap level dan persisten (autokorelasi 0,5-0,7 sampai lag 12), jadi
+	// own-lag TB berpusat di global tb_prior_mean (default 0 = manual); flows tidak persisten (0).
 	f.M = cols(Z)
 	C0  = J(f.M, K, 0)
-	own = d.mode == "levels" ? (1, 0, 0, 1) : J(1, K, 0)
+	tbm = strtoreal(st_global("tb_prior_mean"))
+	if (missing(tbm)) tbm = 0
+	own = d.mode == "levels" ? (1, 0, 0, 1) : (0, tbm, 0, 0)
 	for (j = 1; j <= K; j++) C0[1+j, j] = own[j]
 	v0 = 100
 	for (l = 1; l <= p; l++) v0 = v0, lambda^2 :/ (l^2 :* arvar)
 	v0 = v0, J(1, cols(f.xc), 0.5^2)
+	// Prior UIP: koefisien selisih suku bunga di persamaan kurs berpusat di 1/12 (satuan asli:
+	// selisih 1 pp/tahun -> depresiasi 1/12 % per bulan), sd = global uip_sd (satuan terstandar)
+	if (st_global("use_uip") == "1") {
+		kr = selectindex(f.xc :== 7)
+		if (cols(kr) == 1) {
+			C0[1+K*p+kr, 1] = f.sx[kr]/(12*f.sy[1])
+			v0[1+K*p+kr] = strtoreal(st_global("uip_sd"))^2
+		}
+	}
 	V0i = diag(1 :/ v0)
 
 	// Dummy observations (hanya model level): ybar = rata-rata p observasi pra-sampel
@@ -250,6 +294,7 @@ struct bvfut scalar bv_future(struct bvfit scalar f, struct bvdata scalar d, rea
 	struct bvfut scalar u
 	real colvector frac, known, logdxy, xd, mon, ix
 	real scalar r0, H, i
+	real colvector rate, vixp, logvix, xv
 	real matrix Xall
 	if (origin < f.cutoff | h < 1) _error("origin harus >= cutoff dan h >= 1")
 	u.origin = origin
@@ -261,22 +306,31 @@ struct bvfut scalar bv_future(struct bvfit scalar f, struct bvdata scalar d, rea
 	frac  = ((u.times :- origin) :* (u.times :> origin)) / h
 	u.dxy = d.dxy[r0] :* (1 + g):^frac
 	u.ust = d.ust[r0] :+ du :* frac
+	// selisih suku bunga ke depan: tetap di nilai origin (bulan teramati memakai realisasi)
+	rate  = J(H, 1, d.rate[r0])
+	// VIX ke depan: tetap di nilai origin (perubahan 0)
+	vixp  = J(H, 1, d.vix[r0])
 	known = u.times :<= origin
 	ix = J(0, 1, .)
 	for (i = 1; i <= H; i++) {
 		if (known[i]) {
 			u.dxy[i] = d.dxy[bv_row(d, u.times[i])]
 			u.ust[i] = d.ust[bv_row(d, u.times[i])]
+			rate[i]  = d.rate[bv_row(d, u.times[i])]
+			vixp[i]  = d.vix[bv_row(d, u.times[i])]
 			ix = ix \ i
 		}
 	}
 	logdxy = 100*ln(u.dxy)
+	logvix = 100*ln(vixp)
+	if (f.mode == "changes") xv = logvix - ((100*ln(d.vix[bv_row(d, f.cutoff)])) \ logvix[|1 \ H|])[|1 \ H|]
+	else xv = logvix
 	if (f.mode == "changes") {
 		xd = logdxy - ((100*ln(d.dxy[bv_row(d, f.cutoff)])) \ logdxy[|1 \ H|])[|1 \ H|]
 	}
 	else xd = logdxy
 	mon = mod(u.times, 12) :+ 1
-	Xall = xd, u.ust, sin(2*pi()*mon/12), cos(2*pi()*mon/12), sin(4*pi()*mon/12), cos(4*pi()*mon/12)
+	Xall = xd, u.ust, sin(2*pi()*mon/12), cos(2*pi()*mon/12), sin(4*pi()*mon/12), cos(4*pi()*mon/12), rate, xv, bv_dummies(u.times)
 	u.X = Xall[., f.xc]
 	// Kondisi: kolom (step, variabel 1..4, nilai). Bridge USD/IDR teramati.
 	u.cond = J(0, 3, .)
@@ -564,18 +618,18 @@ real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scala
 	return(X)
 }
 
-// Efek kontemporer DXY (dampak bulan yang sama) per persamaan, satuan asli model:
-// +1 unit x_dxy (= +1% DXY pada model changes) -> perubahan y_j. Posterior marginal C_ij
+// Efek kontemporer variabel eksogen ke-k (dampak bulan yang sama) per persamaan, satuan asli model:
+// +1 unit x_k (k = 1: +1% DXY pada model changes) -> perubahan y_j. Posterior marginal C_ij
 // adalah matrix-t: mean Cn_ij, varians Vn_ii * Sn_jj / (nu - K - 1).
 // Keluaran K x 3: (persamaan, mean, sd).
-real matrix bv_dxy_effect(struct bvfit scalar f)
+real matrix bv_x_effect(struct bvfit scalar f, real scalar k)
 {
 	real matrix R
 	real scalar r, j, sc
-	r = 1 + f.K*f.p + 1
+	r = 1 + f.K*f.p + k
 	R = J(f.K, 3, .)
 	for (j = 1; j <= f.K; j++) {
-		sc = f.sy[j]/f.sx[1]
+		sc = f.sy[j]/f.sx[k]
 		R[j, 1] = j
 		R[j, 2] = f.Cn[r, j]*sc
 		R[j, 3] = sqrt(f.Vn[r, r]*f.Sn[j, j]/(f.nu - f.K - 1))*sc
@@ -587,7 +641,7 @@ real matrix bv_dxy_effect(struct bvfit scalar f)
 void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar lambda, real scalar inc_ust, real scalar nd, real matrix shock, real rowvector chz, real scalar soc)
 {
 	external struct bvdata scalar D
-	external real matrix FIN_resid, FIN_tab, FIN_diag, FIN_cond, FIN_glob, FIN_vars, FIN_info, FIN_dxy
+	external real matrix FIN_resid, FIN_tab, FIN_diag, FIN_cond, FIN_glob, FIN_vars, FIN_info, FIN_dxy, FIN_vix
 	struct bvfit scalar f
 	struct bvfut scalar ub, u
 	struct bvpred scalar pb, ps
@@ -599,7 +653,10 @@ void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real sc
 	f = bv_fit(D, cutoff, sy0, p, lambda, inc_ust, soc)
 	FIN_resid = D.mdate[f.idx], f.resid
 	FIN_info = (f.n, D.mdate[f.idx[1]], f.cutoff, origin)
-	FIN_dxy = bv_dxy_effect(f)
+	FIN_dxy = bv_x_effect(f, 1)
+	// VIX (kolom 8) jika dipakai
+	FIN_vix = J(0, 3, .)
+	if (any(f.xc :== 8)) FIN_vix = bv_x_effect(f, selectindex(f.xc :== 8))
 
 	ub = bv_future(f, D, origin, H, 0, 0)
 	// Bridge makro yang sudah tersedia di snapshot (variabel 2..4)
@@ -634,4 +691,37 @@ void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real sc
 	// Kondisi: (scen, step, mdate, variabel, nilai model); scen 0 = bridge (dipakai semua skenario)
 	FIN_cond = xc[., (1..2)], ub.times[xc[., 2]], xc[., (3..4)]
 }
+end
+
+**## 2.7 Benchmark dan kombinasi pada backtest yang sama (program Stata)
+* Input: dataset backtest (origin, horizon, actual, rw, point). Output per horizon: RMSE BVARX,
+* random walk, random walk + drift BI-Fed (selisih pada origin / 12 per bulan), kombinasi
+* (rata-rata BVARX dan RW + drift), dan rasio terhadap RW. label = nama periode.
+cap program drop bv_bench
+program define bv_bench
+	args label
+	preserve
+		use mdate bi_ff_diff_pp using "$data\database.dta", clear
+		rename mdate origin
+		tempfile rr
+		save `rr'
+	restore
+	merge m:1 origin using `rr', keep(match) nogen
+	gen double rw_drift = rw*exp(bi_ff_diff_pp/100/12*horizon)
+	gen double combo = (point + rw_drift)/2
+	gen double e_bvar = (actual - point)^2
+	gen double e_rw = (actual - rw)^2
+	gen double e_rwd = (actual - rw_drift)^2
+	gen double e_combo = (actual - combo)^2
+	collapse (count) n=origin (mean) e_bvar e_rw e_rwd e_combo, by(horizon)
+	foreach v in bvar rw rwd combo {
+		gen double rmse_`v' = sqrt(e_`v')
+	}
+	foreach v in bvar rwd combo {
+		gen double rel_`v' = rmse_`v'/rmse_rw
+	}
+	drop e_*
+	format n %9.0g
+	gen str12 period = "`label'"
+	order period horizon n rmse_rw rmse_bvar rmse_rwd rmse_combo rel_bvar rel_rwd rel_combo
 end

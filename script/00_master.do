@@ -1,5 +1,6 @@
-**# 0. MASTER: Forecast dan skenario USD/IDR dengan BVARX
-* v3: semua tahap memakai BVARX changes (lihat CHANGELOG.md).
+**# 0. MASTER: Forecast dan skenario USD/IDR, model gabungan (Baseline BMA + skenario BVARX)
+* v4: BVARX changes (01-08) untuk skenario bersyarat, BMA (09) untuk baseline, gabungan (10).
+* Versi BVARX saja (v3.5) ada di archive/v3_5_bvarx/. Lihat CHANGELOG.md.
 * Port Stata dari input/reference/Manual_Model_Rupiah_BVARX.Rmd (versi R).
 * Jalankan seluruh file ini sebagai do-file: do "script/00_master.do".
 * Tutup Database_Rupiah_Bulanan.xlsx dan output Excel di Excel sebelum menjalankan.
@@ -26,17 +27,21 @@ global script "$base\script"
 * Dataset Stata hasil olahan
 global data "$base\intermediate"
 * Hasil akhir
-*   output/figures      grafik PNG siap pakai
+*   output/figures                  grafik model gabungan (hasil utama) dan data
+*   output/figures/komponen_bvarx   grafik komponen BVARX (test, skenario, residual)
+*   output/figures/komponen_bma     grafik komponen BMA (PIP, test)
 *   output/tables       tabel hasil (CSV), juga disalin ke workbook ringkasan
 *   output/diagnostics  uji dan diagnostik (unit root, residual, ESS, akar companion)
 *   output/gph          grafik kerja Stata (.gph)
 global results "$base\output"
 global fig "$results\figures"
+global fig_bvarx "$fig\komponen_bvarx"
+global fig_bma "$fig\komponen_bma"
 global tab "$results\tables"
 global diag "$results\diagnostics"
 global gph "$results\gph"
 global xlsx "$results\rupiah_bvarx_results.xlsx"
-foreach d in data results fig tab diag gph {
+foreach d in data results fig fig_bvarx fig_bma tab diag gph {
 	cap mkdir "${`d'}"
 }
 cap erase "$xlsx"
@@ -95,11 +100,12 @@ end
 **## 0.1 Parameter manual (setara blok params di Rmd)
 * profile: quick (cek alur) | standard | publication (angka untuk naskah)
 global profile "standard"
-* 1 = tambahkan UST10Y sebagai eksogen (putuskan di tahap validation)
-global include_ust 0
 * Jumlah harmonik musiman sin/cos: 1 = periode 12 bulan (manual), 2 = + periode 6 bulan
 * (residual trade balance v2 masih berautokorelasi di lag 6 dan 12)
 global seas_harm 2
+* Prior mean own-lag trade balance (model changes). 0 = manual; 0.7 = sesuai autokorelasi TB
+* (lag 1 = 0,69). Residual TB v3 masih berautokorelasi karena prior 0 + shrinkage ketat.
+global tb_prior_mean 0.7
 * 1 = jalankan uji unit root ADF + Phillips-Perron (01, bagian 1.6)
 global run_adf 1
 * Seed utama (setara set.seed(30102026) di Rmd)
@@ -133,7 +139,30 @@ global release_lag 2
 * Grid validation: start year, lag, lambda (shrinkage)
 global grid_start "2013 2014 2017"
 global grid_p "1 2"
-global grid_lambda "0.10 0.30"
+* lambda diperluas ke 0.03/0.05: v3 memilih 0.10 = batas bawah grid lama
+global grid_lambda "0.03 0.05 0.10 0.30"
+* Eksogen opsional, dipilih validation: UST10Y (level), selisih BI rate - Fed funds (level, pp),
+* VIX (perubahan log). UST sudah diuji di v3.3 dan tidak terpilih, jadi grid_ust = 0 untuk menghemat waktu.
+global grid_ust "0"
+* selisih suku bunga ditolak validation di v3.3 dan v3.4 -> 0 untuk menghemat waktu
+global grid_rate "0"
+* VIX dan dummy ditetapkan dari hasil v3.5 (dummy terpilih; VIX tidak terpilih bersama dummy)
+global grid_vix "0"
+* Impulse dummy bulan ekstrem (|perubahan kurs| > 2,5 sd): 1 di bulan itu, 0 lainnya; dipilih validation
+global grid_dum "1"
+* Prior UIP: selisih BI-Fed masuk persamaan kurs dengan koefisien berpusat di 1/12 (depresiasi = selisih
+* suku bunga per bulan); 0/1 dipilih validation. uip_sd = sd prior (satuan terstandar)
+global grid_uip "0 1"
+global uip_sd 0.05
+* Bayesian Model Averaging (09_bma.do): regresi prediktif langsung, 6 prediktor, g-prior tetap
+global run_bma 1
+global bma_preds "ds ddxy dust flow2 tb2 dres2"
+* g dikunci ke 0.25: terpilih di validation run 30 Okt 2026 18:05 dari grid 0.25/1/4/n
+* (skor 0,968 / 0,973 / 0,992 / 0,987). Kembalikan ke "0.25 1 4 n" untuk validasi ulang g.
+global bma_g_grid "0.25"
+global bma_start 2014
+global bma_inc 0.5
+global outlier_months "2015m10 2018m11 2020m3 2020m4"
 * Origin validation (Jan 2021 - Jun 2023) dan awal test (Jan 2024)
 global val_from = ym(2021,1)
 global val_to   = ym(2023,6)
@@ -162,7 +191,7 @@ set seed $seed
 **## 0.3 Log
 cap log close main
 log using "$results\run_log.log", replace text name(main)
-di "Mulai: `c(current_date)' `c(current_time)'  profile=$profile  include_ust=$include_ust"
+di "Mulai: `c(current_date)' `c(current_time)'  profile=$profile"
 timer clear 1
 timer on 1
 
@@ -184,6 +213,10 @@ do "$script\06_final_scenarios.do"
 do "$script\07_export.do"
 * 08: perbandingan forecast akhir: BVARX changes, random walk, random walk + drift, kombinasi
 do "$script\08_forecast_compare.do"
+* 09: Bayesian Model Averaging (bmaregress) vs random walk tanpa drift
+if $run_bma do "$script\09_bma.do"
+* 10: model gabungan: Baseline BMA + selisih skenario BVARX (butuh 06 dan 09)
+if $run_bma do "$script\10_hybrid.do"
 
 timer off 1
 timer list 1

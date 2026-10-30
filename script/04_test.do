@@ -2,7 +2,7 @@
 * Rmd: chunk test-terkunci, bootstrap-error, plot-error-test.
 * Origin Jan 2024 s/d (bulan lengkap terakhir - 6). Spesifikasi dari 03, tidak dipilih ulang.
 * Menulis: intermediate/test_forecasts.dta, test_scores.dta, test_bootstrap.dta
-* Output:  tables/T3_test_forecasts, T4_test_scores, T5_test_bootstrap;
+* Output:  tables/T3_test_forecasts, T4_test_scores, T5_test_bootstrap, T6_benchmarks;
 *          figures/4_test_h1.png, 4_test_h3.png, 4_test_h6.png, 4_test_rmse.png
 
 local hmax : word count $horizons
@@ -13,7 +13,7 @@ mata: hz = strtoreal(tokens(st_global("horizons")))
 
 use "$data\database.dta", clear
 mata: D = bv_load("$model_mode")
-mata: R = bv_backtest(D, $best_start, $best_p, $best_lambda, $include_ust, ///
+mata: R = bv_backtest(D, $best_start, $best_p, $best_lambda, $best_ust, ///
 	($test_from::$test_to), $n_test, 20000, $release_lag, hz, 0)
 mata: bv_tostata(R, bv_bt_names())
 format origin target %tm
@@ -54,6 +54,23 @@ list, noobs clean
 save "$data\test_bootstrap.dta", replace
 bv_out tab "T5_test_bootstrap"
 
+**## 4.4 Benchmark dan kombinasi: validation (spesifikasi terkunci) dan test
+* rel_* = RMSE / RMSE random walk (< 1 = lebih akurat). Kombinasi = rata-rata BVARX dan RW + drift BI-Fed.
+use "$data\validation_backtests.dta", clear
+keep if start_year == $best_start & p == $best_p & lambda == $best_lambda & ust == $best_ust & rate == $best_rate & vix == $best_vix & dum == $best_dum & uip == $best_uip
+bv_bench "validation"
+tempfile bv
+save `bv'
+use "$data\test_forecasts.dta", clear
+bv_bench "test"
+append using `bv'
+sort period horizon
+format rmse_* %9.1f
+format rel_* %6.3f
+list, noobs sepby(period)
+save "$data\benchmarks.dta", replace
+bv_out tab "T6_benchmarks"
+
 **## 4.3 Grafik aktual vs BVARX vs RW per horizon
 foreach h of global horizons {
 	use "$data\test_forecasts.dta", clear
@@ -66,7 +83,7 @@ foreach h of global horizons {
 		legend(order(2 "Aktual" 3 "BVARX median" 4 "Random walk" 1 "Band 80% BVARX") rows(1) size(small) position(6)) ///
 		xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) graphregion(color(white)) name(test_h`h', replace)
 	graph save "$gph\4_test_h`h'.gph", replace
-	graph export "$fig\4_test_h`h'.png", replace width(1800)
+	graph export "$fig_bvarx\4_test_h`h'.png", replace width(1800)
 }
 
 use "$data\test_scores.dta", clear
@@ -76,4 +93,4 @@ graph bar rmse_bvar rmse_rw, over(horizon, relabel(1 "h=1" 2 "h=3" 3 "h=6")) ///
 	title("Test 2024-2026: RMSE BVARX $model_mode vs random walk", size(medium)) blabel(bar, format(%9.0f) size(vsmall)) ///
 	graphregion(color(white)) name(test_rmse, replace)
 graph save "$gph\4_test_rmse.gph", replace
-graph export "$fig\4_test_rmse.png", replace width(1800)
+graph export "$fig_bvarx\4_test_rmse.png", replace width(1800)

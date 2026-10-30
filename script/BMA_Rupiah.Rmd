@@ -1,0 +1,496 @@
+---
+title: "Forecast USD/IDR dengan Bayesian Model Averaging (BMA)"
+subtitle: "Pengganti spesifikasi BVARX; acuan literatur: Rossi (2013), Exchange Rate Predictability"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+    df_print: paged
+    self_contained: true
+params:
+  data_file: "../input/Database_Rupiah_Bulanan.xlsx"
+  output_dir: "../output/bma"
+  start_year: 2014
+  g_grid: "0.25,1,4,n"
+  prior_inclusion: 0.5
+  n_sim: 20000
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = TRUE,
+                      error = FALSE, fig.width = 8, fig.height = 4.5, dpi = 120)
+options(width = 95, scipen = 6)
+set.seed(30102026)
+need <- c("readxl", "knitr", "rmarkdown")
+absent <- need[!vapply(need, requireNamespace, logical(1), quietly = TRUE)]
+if (length(absent)) {
+  stop("Jalankan di Console dahulu: install.packages(c(",
+       paste(sprintf('"%s"', absent), collapse = ", "), "))")
+}
+dir.create(params$output_dir, recursive = TRUE, showWarnings = FALSE)
+out <- function(name) file.path(params$output_dir, name)
+tbl <- function(x, digits = 3) knitr::kable(x, digits = digits, row.names = FALSE)
+md  <- function(y, m) 12L*(y - 1960L) + m - 1L
+ym  <- function(m) sprintf("%04d-%02d", 1960 + m %/% 12, m %% 12 + 1)
+```
+
+# Ringkasan perubahan metodologi
+
+Dokumen ini mengganti BVARX dengan **Bayesian Model Averaging (BMA)** untuk regresi prediktif
+langsung (*direct h-step*). Dataset, definisi variabel, horizon (1, 3, 6 bulan), periode
+validation (origin Jan 2021–Jun 2023) dan test (origin Jan 2024 sampai bulan lengkap terakhir − 6),
+serta benchmark **random walk tanpa drift** dipertahankan agar hasil dapat dibandingkan dengan BVARX.
+
+| Aspek | BVARX (sebelumnya) | BMA (dokumen ini) |
+|:--|:--|:--|
+| Bentuk model | Sistem VAR 4 variabel endogen + eksogen, forecast iteratif | Satu persamaan per horizon: perubahan log kurs h bulan ke depan pada prediktor yang diketahui saat origin |
+| Ketidakpastian | Parameter dalam satu spesifikasi | Parameter **dan pilihan prediktor** (2^6 = 64 model) |
+| Shrinkage | Prior Minnesota kontinu pada semua koefisien | g-prior Zellner di tiap model (faktor g/(1+g)) + rata-rata berbobot probabilitas posterior model |
+| Forecast | Median posterior predictive sistem | Rata-rata forecast tiap model dibobot probabilitas posterior model |
+| Skenario bersyarat | Ya (jalur DXY, TB, flows) | Tidak secara langsung; BMA di sini untuk forecast tak bersyarat |
+
+**Implikasi penting.** BMA menjawab pertanyaan pertama penelitian (apakah prediktor fundamental
+meningkatkan akurasi dibanding random walk) secara lebih langsung, karena ketidakpastian tentang
+prediktor mana yang relevan ikut diperhitungkan. BMA tidak menggantikan fungsi skenario bersyarat
+BVARX: untuk pertanyaan kedua (distribusi kurs di bawah jalur DXY/flows tertentu), BVARX tetap
+alat yang sesuai.
+
+# Literatur dan alasan desain
+
+## BMA dalam literatur prediksi kurs
+
+Rossi (2013) menyimpulkan bahwa kemampuan prediksi kurs sangat bergantung pada prediktor,
+horizon, sampel, dan metode evaluasi, dan bahwa random walk tanpa drift tetap benchmark yang sulit
+dikalahkan sejak Meese dan Rogoff (1983). Salah satu respons terhadap ketidakpastian model yang
+ditinjau Rossi adalah BMA, khususnya Wright (2008), yang merata-ratakan model fundamental kurs
+dengan bobot probabilitas posterior di bawah g-prior. Wright melaporkan bahwa BMA dengan shrinkage
+kuat dapat sedikit mengungguli random walk untuk sebagian mata uang dan horizon, tetapi
+keunggulannya kecil dan tidak seragam. Karena itu dokumen ini **tidak mengasumsikan** BMA akan
+mengalahkan random walk; hasilnya dihitung saat dokumen dijalankan.
+
+## BMA konvensional vs pendekatan shrinkage
+
+| | BMA konvensional | Shrinkage Bayesian (mis. BVAR Minnesota, Carriero, Kapetanios & Marcellino 2009) |
+|:--|:--|:--|
+| Sumber regularisasi | Ruang model diskret: prediktor masuk atau tidak, dibobot probabilitas posterior | Semua prediktor masuk; koefisien ditarik kontinu ke nilai prior (umumnya 0 atau random walk) |
+| Parameter prior utama | g (shrinkage di dalam model) dan prior inklusi prediktor | Tightness (lambda) dan struktur varians prior |
+| Output khas | Posterior inclusion probability (PIP), probabilitas model | Posterior koefisien, forecast sistem |
+| Kelemahan | Ruang model membesar 2^K; likelihood mengasumsikan galat iid | Tidak memberi ukuran langsung relevansi prediktor |
+
+BMA di sini **menggabungkan keduanya secara eksplisit**: g-prior memberi shrinkage di dalam tiap
+model (rata-rata posterior koefisien = g/(1+g) × OLS), sedangkan rata-rata atas model memberi
+shrinkage antar model (prediktor dengan PIP rendah hampir tidak berkontribusi). Dengan g kecil,
+forecast BMA mendekati model hanya-konstanta (random walk dengan drift yang diestimasi).
+
+## Spesifikasi
+
+Untuk horizon h dan bulan t:
+
+\[
+ y_{t+h} = 100\left[\log S_{t+h} - \log S_t\right] = \alpha + x_{t,M}'\beta_M + \varepsilon_{t+h},
+ \qquad \varepsilon \sim N(0, \sigma^2)
+\]
+
+dengan \(x_{t,M}\) subset prediktor dari model \(M\). Prediktor kandidat (enam, sesuai variabel
+manual BVARX), semuanya **diketahui pada akhir bulan t**:
+
+| Prediktor | Definisi | Informasi tersedia |
+|:--|:--|:--|
+| `ds` | 100 Δlog USD/IDR bulan t (momentum/pembalikan) | Pasar, bulan t |
+| `ddxy` | 100 Δlog DXY bulan t | Pasar, bulan t |
+| `dust` | Perubahan UST10Y bulan t (pp) | Pasar, bulan t |
+| `flow2` | Net flows asing (saham+SBN+SRBI) bulan t−2, satuan Rp10 tn | Jeda rilis 2 bulan |
+| `tb2` | Trade balance bulan t−2 (USD bn) | Jeda rilis 2 bulan |
+| `dres2` | 100 Δlog cadangan valas bulan t−2 | Jeda rilis 2 bulan |
+
+Jeda dua bulan untuk variabel makro mengikuti asumsi information set konservatif di manual BVARX.
+
+## Prior
+
+* **Intercept dan σ**: prior non-informatif \(p(\alpha,\sigma)\propto 1/\sigma\), sama di semua model
+  (Fernández, Ley & Steel 2001). Prediktor di-*demean* dengan rata-rata sampel training saja.
+* **Koefisien**: g-prior Zellner \(\beta_M \mid \sigma \sim N\!\left(0,\, g\sigma^2 (X_M'X_M)^{-1}\right)\).
+  Prior berpusat di 0 = hipotesis tanpa prediktabilitas (konsisten dengan random walk).
+  Semakin kecil g, semakin kuat shrinkage ke 0. Wright (2008) menemukan shrinkage kuat bekerja lebih
+  baik untuk kurs; nilai FLS (2001) yang umum, g = n, relatif lemah. g dipilih dari grid
+  `r params$g_grid` **hanya pada periode validation**.
+* **Model**: setiap prediktor masuk dengan probabilitas prior `r params$prior_inclusion`, independen
+  (prior seragam atas 64 model bila 0,5).
+
+Marginal likelihood model \(M\) dengan \(k_M\) prediktor:
+
+\[
+ p(y \mid M) \propto (1+g)^{(n-1-k_M)/2}\left[1+g(1-R_M^2)\right]^{-(n-1)/2},
+\]
+
+probabilitas posterior model \(p(M\mid y) \propto p(y\mid M)\,p(M)\), dan PIP prediktor \(j\) adalah
+jumlah probabilitas posterior model yang memuat \(j\).
+
+## Forecast BMA
+
+Posterior predictive tiap model adalah Student-t dengan \(n-1\) derajat bebas, lokasi
+\(\bar y + \tfrac{g}{1+g}\,\tilde x_0'\hat\beta_M\) dan skala
+\(\tfrac{S_M}{n-1}\left[1 + \tfrac1n + \tfrac{g}{1+g}\tilde x_0'(X_M'X_M)^{-1}\tilde x_0\right]\), dengan
+\(S_M = \text{TSS}\,\frac{1+g(1-R_M^2)}{1+g}\). Forecast titik BMA adalah **rata-rata lokasi dibobot
+probabilitas posterior model**; interval diambil dari campuran (mixture) predictive tersebut lewat
+simulasi. Ini BMA sungguhan, bukan rata-rata sederhana dari model yang dipilih manual.
+
+## Pencegahan look-ahead bias
+
+1. Daftar prediktor ditetapkan sebelum evaluasi (dari variabel manual BVARX).
+2. Untuk origin r dan horizon h, sampel training hanya bulan t dengan \(t+h \le r\); target \(y_{t+h}\)
+   karenanya sudah teramati pada r.
+3. Prediktor makro memakai jeda 2 bulan; demeaning, OLS, marginal likelihood, PIP, dan bobot model
+   dihitung ulang di setiap origin dari sampel training saja.
+4. g dipilih di validation; test tidak dipakai untuk memilih apa pun.
+
+**Keterbatasan.** Untuk h > 1, observasi training tumpang tindih sehingga galat berautokorelasi
+(MA(h−1)); likelihood iid membuat probabilitas posterior model cenderung terlalu tegas. Database
+memakai *latest vintage*, sehingga backtest bersifat pseudo-real-time.
+
+# Impor dan audit database (sama dengan manual BVARX)
+
+```{r impor}
+if (!file.exists(params$data_file)) stop("File Excel tidak ditemukan: ", params$data_file)
+raw <- as.data.frame(readxl::read_excel(params$data_file, sheet = "database_monthly",
+                                        col_types = "numeric", na = c("", "NA")))
+flow_components <- as.data.frame(readxl::read_excel(params$data_file, sheet = "flow_components"))
+required <- c("year", "month", "mdate", "usdidr", "trade_bal_usdbn", "net_flows_idrtn",
+              "fx_reserves_usdbn", "dxy", "ust10y_pct", "core_complete")
+stopifnot(all(required %in% names(raw)))
+raw <- raw[order(raw$mdate), ]
+stopifnot(!anyDuplicated(raw$mdate), all(diff(raw$mdate) == 1),
+          all(raw$mdate == 12*(raw$year - 1960) + raw$month - 1))
+core <- c("usdidr", "trade_bal_usdbn", "net_flows_idrtn", "fx_reserves_usdbn", "dxy")
+raw$complete_check <- as.integer(complete.cases(raw[, core]))
+stopifnot(identical(as.integer(raw$core_complete), raw$complete_check),
+          all(raw$usdidr > 0), all(raw$dxy > 0), all(raw$fx_reserves_usdbn > 0))
+flow_sum <- rowSums(flow_components[, c("flow_saham_idrtn", "flow_sbn_idrtn", "flow_srbi_idrtn")])
+stopifnot(max(abs(flow_sum - raw$net_flows_idrtn)) < 1e-8)
+latest_complete <- max(raw$mdate[raw$complete_check == 1])
+cat("Bulan lengkap terakhir:", ym(latest_complete), "\n")
+```
+
+# Transformasi dan prediktor
+
+```{r prediktor}
+lagv  <- function(x, k) c(rep(NA, k), x[seq_len(length(x) - k)])
+leadv <- function(x, k) c(x[-seq_len(k)], rep(NA, k))
+horizons <- c(1L, 3L, 6L)
+d <- raw
+d$ls    <- 100*log(d$usdidr)
+d$ds    <- d$ls - lagv(d$ls, 1)
+d$ddxy  <- 100*(log(d$dxy) - log(lagv(d$dxy, 1)))
+d$dust  <- d$ust10y_pct - lagv(d$ust10y_pct, 1)
+d$flow2 <- lagv(d$net_flows_idrtn, 2)/10
+d$tb2   <- lagv(d$trade_bal_usdbn, 2)
+d$dres2 <- lagv(100*(log(d$fx_reserves_usdbn) - log(lagv(d$fx_reserves_usdbn, 1))), 2)
+for (h in horizons) d[[paste0("y", h)]] <- leadv(d$ls, h) - d$ls
+preds <- c("ds", "ddxy", "dust", "flow2", "tb2", "dres2")
+pred_label <- c(ds = "USD/IDR (perubahan t)", ddxy = "DXY (perubahan t)",
+                dust = "UST10Y (perubahan t)", flow2 = "Net flows (t-2)",
+                tb2 = "Trade balance (t-2)", dres2 = "Cadangan valas (perubahan t-2)")
+K <- length(preds)
+models <- as.matrix(expand.grid(rep(list(0:1), K)))
+colnames(models) <- preds
+cat("Jumlah model:", nrow(models), "\n")
+tbl(data.frame(prediktor = preds, label = pred_label[preds],
+               n_tersedia = vapply(preds, function(v) sum(is.finite(d[[v]])), integer(1))))
+```
+
+# Mesin BMA
+
+```{r fungsi-bma}
+# Estimasi semua model untuk satu sampel training (y, X); g = parameter g-prior.
+bma_fit <- function(y, X, g, prior_inc = params$prior_inclusion) {
+  n <- length(y)
+  ybar <- mean(y); yc <- y - ybar; TSS <- sum(yc^2)
+  Xm <- colMeans(X); Xc <- sweep(X, 2, Xm)
+  res <- lapply(seq_len(nrow(models)), function(i) {
+    s <- which(models[i, ] == 1); k <- length(s)
+    if (k == 0) {
+      b <- numeric(0); XtXi <- matrix(0, 0, 0); R2 <- 0
+    } else {
+      Z <- Xc[, s, drop = FALSE]
+      XtXi <- solve(crossprod(Z))
+      b <- drop(XtXi %*% crossprod(Z, yc))
+      R2 <- sum((Z %*% b)^2)/TSS
+    }
+    lml <- 0.5*(n - 1 - k)*log1p(g) - 0.5*(n - 1)*log1p(g*(1 - R2))
+    lpr <- k*log(prior_inc) + (K - k)*log(1 - prior_inc)
+    list(s = s, k = k, b = b, XtXi = XtXi, R2 = R2, lp = lml + lpr)
+  })
+  lp <- vapply(res, `[[`, numeric(1), "lp")
+  w <- exp(lp - max(lp)); w <- w/sum(w)
+  list(res = res, w = w, ybar = ybar, Xm = Xm, n = n, TSS = TSS, g = g,
+       pip = colSums(models*w))
+}
+# Posterior predictive tiap model pada x0: lokasi, skala (Student-t, df = n-1).
+bma_predict <- function(fit, x0) {
+  x0c <- x0 - fit$Xm; sh <- fit$g/(1 + fit$g)
+  comp <- t(vapply(fit$res, function(m) {
+    if (m$k == 0) { mu <- fit$ybar; q <- 0 } else {
+      xs <- x0c[m$s]
+      mu <- fit$ybar + sh*sum(xs*m$b)
+      q  <- sh*drop(t(xs) %*% m$XtXi %*% xs)
+    }
+    S <- fit$TSS*(1 + fit$g*(1 - m$R2))/(1 + fit$g)
+    c(mu = mu, scale = sqrt(S/(fit$n - 1)*(1 + 1/fit$n + q)))
+  }, numeric(2)))
+  list(mean = sum(fit$w*comp[, "mu"]), comp = comp, w = fit$w, df = fit$n - 1)
+}
+# Simulasi campuran predictive -> kuantil perubahan log (dalam %)
+bma_quantiles <- function(p, probs = c(.025, .10, .5, .90, .975), nsim = params$n_sim) {
+  j <- sample.int(length(p$w), nsim, replace = TRUE, prob = p$w)
+  draws <- p$comp[j, "mu"] + p$comp[j, "scale"]*rt(nsim, df = p$df)
+  quantile(draws, probs)
+}
+g_value <- function(g, n) if (g == "n") n else as.numeric(g)
+# Sampel training untuk origin r dan horizon h (hanya t + h <= r)
+train_data <- function(r, h, start_year) {
+  tr <- which(d$mdate >= md(start_year, 1) & d$mdate + h <= r)
+  X <- as.matrix(d[tr, preds]); y <- d[[paste0("y", h)]][tr]
+  ok <- stats::complete.cases(X, y)
+  list(X = X[ok, , drop = FALSE], y = y[ok])
+}
+run_bma <- function(origins, h, g, start_year = params$start_year) {
+  rows <- lapply(origins, function(r) {
+    td <- train_data(r, h, start_year)
+    fit <- bma_fit(td$y, td$X, g_value(g, length(td$y)))
+    ir <- match(r, d$mdate); x0 <- unlist(d[ir, preds])
+    stopifnot(all(is.finite(x0)))
+    p <- bma_predict(fit, x0)
+    s0 <- d$usdidr[ir]; act <- d$usdidr[match(r + h, d$mdate)]
+    stopifnot(is.finite(act))
+    data.frame(origin = r, target = r + h, horizon = h, n_train = length(td$y),
+               actual = act, rw = s0, point = s0*exp(p$mean/100),
+               yhat = p$mean, yact = 100*log(act/s0), t(fit$pip))
+  })
+  do.call(rbind, rows)
+}
+```
+
+# Evaluasi: RMSE, uji Diebold-Mariano dan Clark-West
+
+Random walk tanpa drift memprediksi perubahan nol, sehingga BMA *nested* terhadapnya (model
+hanya-konstanta dengan konstanta nol). Rossi (2013) menekankan bahwa untuk model bersarang uji DM
+standar terlalu konservatif; karena itu dilaporkan juga uji **Clark-West (2007)** (satu sisi,
+H1: BMA lebih akurat). DM memakai koreksi sampel kecil Harvey-Leybourne-Newbold (1997). Varians
+long-run memakai Newey-West dengan lag h−1 karena forecast h-step tumpang tindih.
+
+```{r fungsi-evaluasi}
+nw_var_mean <- function(x, L) {
+  x <- x - mean(x); n <- length(x); v <- sum(x^2)/n
+  if (L > 0) for (l in seq_len(min(L, n - 1))) {
+    v <- v + 2*(1 - l/(L + 1))*sum(x[(l + 1):n]*x[1:(n - l)])/n
+  }
+  v/n
+}
+score <- function(b) {
+  do.call(rbind, lapply(split(b, b$horizon), function(a) {
+    h <- a$horizon[1]; n <- nrow(a)
+    e_m <- a$actual - a$point; e_r <- a$actual - a$rw
+    # Diebold-Mariano (loss kuadrat, level kurs) + koreksi HLN
+    dl <- e_m^2 - e_r^2
+    dm <- mean(dl)/sqrt(nw_var_mean(dl, h - 1))
+    hln <- dm*sqrt((n + 1 - 2*h + h*(h - 1)/n)/n)
+    # Clark-West (perubahan log; forecast RW = 0)
+    f <- a$yact^2 - ((a$yact - a$yhat)^2 - a$yhat^2)
+    cw <- mean(f)/sqrt(nw_var_mean(f, h - 1))
+    data.frame(horizon = h, n = n,
+               rmse_bma = sqrt(mean(e_m^2)), rmse_rw = sqrt(mean(e_r^2)),
+               relative_rmse = sqrt(mean(e_m^2))/sqrt(mean(e_r^2)),
+               mae_bma = mean(abs(e_m)), mae_rw = mean(abs(e_r)),
+               direction = mean(sign(a$yhat) == sign(a$yact)),
+               dm_hln = hln, dm_p = 2*pt(-abs(hln), df = n - 1),
+               cw_t = cw, cw_p = 1 - pnorm(cw))
+  }))
+}
+```
+
+# Validation: memilih g
+
+```{r validation}
+val_origins <- seq.int(md(2021, 1), md(2023, 6))
+stopifnot(max(val_origins) + max(horizons) <= md(2023, 12))
+g_grid <- trimws(strsplit(params$g_grid, ",")[[1]])
+validation <- do.call(rbind, lapply(g_grid, function(g) {
+  b <- do.call(rbind, lapply(horizons, function(h) run_bma(val_origins, h, g)))
+  s <- score(b)
+  data.frame(g = g, score = mean(s$relative_rmse),
+             rrmse_h1 = s$relative_rmse[1], rrmse_h3 = s$relative_rmse[2],
+             rrmse_h6 = s$relative_rmse[3])
+}))
+# Aturan tie (ditetapkan sebelum test): skor dalam 1% dari minimum -> g terkecil (shrinkage terkuat)
+g_num <- vapply(validation$g, function(g) if (g == "n") Inf else as.numeric(g), numeric(1))
+eligible <- validation$score <= min(validation$score)*1.01
+best_g <- validation$g[eligible][which.min(g_num[eligible])]
+validation$chosen <- validation$g == best_g
+tbl(validation, 4)
+write.csv(validation, out("bma_validation_g.csv"), row.names = FALSE)
+cat("g terpilih:", best_g, "\n")
+```
+
+# Test out-of-sample
+
+```{r test}
+test_origins <- seq.int(md(2024, 1), latest_complete - max(horizons))
+stopifnot(min(test_origins) > max(val_origins) + max(horizons))
+test <- do.call(rbind, lapply(horizons, function(h) run_bma(test_origins, h, best_g)))
+test_score <- score(test)
+tbl(test_score, 3)
+write.csv(test, out("bma_test_forecasts.csv"), row.names = FALSE)
+write.csv(test_score, out("bma_test_scores.csv"), row.names = FALSE)
+cat("Origin test:", ym(min(test_origins)), "s/d", ym(max(test_origins)),
+    "; origin per horizon:", length(test_origins), "\n")
+```
+
+Cara membaca: `relative_rmse < 1` berarti BMA lebih akurat dari random walk tanpa drift secara
+deskriptif. `dm_p` dan `cw_p` di bawah 0,05 menunjukkan bukti statistik; dengan sekitar 26
+forecast per horizon, daya uji rendah, sehingga p-value besar berarti **belum ada bukti**,
+bukan bukti bahwa kedua model sama.
+
+## Perbandingan dengan BVARX (bila tersedia)
+
+```{r banding-bvarx}
+bvarx_file <- "../output/tables/T4_test_scores.csv"
+if (file.exists(bvarx_file)) {
+  bv <- read.csv(bvarx_file)
+  cmp <- merge(test_score[, c("horizon", "relative_rmse")],
+               bv[, c("horizon", "relative_rmse")], by = "horizon",
+               suffixes = c("_bma", "_bvarx"))
+  tbl(cmp, 3)
+  write.csv(cmp, out("bma_vs_bvarx.csv"), row.names = FALSE)
+} else cat("Hasil BVARX tidak ditemukan; perbandingan dilewati.\n")
+```
+
+Catatan: perbandingan sah hanya bila origin dan horizon test sama (keduanya Jan 2024 sampai bulan
+lengkap terakhir − 6) dan BVARX dijalankan pada versi data yang sama.
+
+# Posterior inclusion probability dan probabilitas model
+
+## PIP sepanjang origin (tanpa look-ahead)
+
+```{r pip-waktu, fig.height = 5}
+pip_path <- do.call(rbind, lapply(horizons, function(h)
+  run_bma(c(val_origins, test_origins), h, best_g)))
+write.csv(pip_path[, c("origin", "horizon", preds)], out("bma_pip_by_origin.csv"), row.names = FALSE)
+op <- par(mfrow = c(1, 3), mar = c(4, 4, 2, 1))
+cols <- c("#185A8D", "#A45717", "#23724A", "#7B3294", "#666666", "#C51B7D")
+for (h in horizons) {
+  a <- pip_path[pip_path$horizon == h, ]
+  matplot(as.Date(paste0(ym(a$origin), "-01")), a[, preds], type = "l", lty = 1,
+          col = cols, ylim = c(0, 1), xlab = "Origin", ylab = "PIP", main = paste0("h = ", h))
+  abline(h = 0.5, lty = 3, col = "grey50")
+}
+legend("topright", legend = pred_label[preds], col = cols, lty = 1, bty = "n", cex = .7)
+par(op)
+```
+
+## PIP dan model teratas pada sampel penuh (untuk forecast akhir)
+
+```{r pip-akhir}
+final_origin <- max(d$mdate[is.finite(d$usdidr) & is.finite(d$dxy) &
+                              stats::complete.cases(d[, preds])])
+final_fits <- lapply(horizons, function(h) {
+  td <- train_data(final_origin, h, params$start_year)
+  bma_fit(td$y, td$X, g_value(best_g, length(td$y)))
+})
+names(final_fits) <- paste0("h", horizons)
+pip_final <- data.frame(prediktor = pred_label[preds],
+                        vapply(final_fits, `[[`, numeric(K), "pip"))
+tbl(pip_final, 3)
+write.csv(pip_final, out("bma_pip_final.csv"), row.names = FALSE)
+top_models <- do.call(rbind, lapply(horizons, function(h) {
+  f <- final_fits[[paste0("h", h)]]
+  o <- order(f$w, decreasing = TRUE)[1:10]
+  data.frame(horizon = h, rank = 1:10,
+             prediktor = vapply(o, function(i) {
+               s <- preds[models[i, ] == 1]; if (length(s)) paste(s, collapse = " + ") else "(konstanta saja)"
+             }, character(1)),
+             prob_posterior = f$w[o])
+}))
+tbl(top_models, 3)
+write.csv(top_models, out("bma_top_models.csv"), row.names = FALSE)
+barplot(t(as.matrix(pip_final[, -1])), beside = TRUE, names.arg = preds,
+        col = c("#185A8D", "#A45717", "#23724A"), ylim = c(0, 1), ylab = "PIP",
+        main = "Posterior inclusion probability (sampel penuh)")
+abline(h = 0.5, lty = 3)
+legend("topright", legend = paste0("h = ", horizons),
+       fill = c("#185A8D", "#A45717", "#23724A"), bty = "n")
+```
+
+# Grafik diagnostik forecast
+
+```{r grafik-test, fig.height = 5}
+op <- par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+a <- test[test$horizon == 3, ]
+dt <- as.Date(paste0(ym(a$target), "-01"))
+plot(dt, a$actual, type = "l", lwd = 2, xlab = "Bulan target", ylab = "IDR per USD",
+     main = "Test h = 3: aktual vs BMA vs RW")
+lines(dt, a$point, col = "#185A8D", lwd = 2)
+lines(dt, a$rw, col = "#A45717", lty = 2)
+legend("topleft", c("Aktual", "BMA", "RW tanpa drift"), col = c("black", "#185A8D", "#A45717"),
+       lty = c(1, 1, 2), bty = "n")
+# Selisih kumulatif kuadrat error (RW - BMA): naik = BMA lebih akurat
+plot(NULL, xlim = range(as.Date(paste0(ym(test$target), "-01"))),
+     ylim = range(unlist(lapply(horizons, function(h) {
+       b <- test[test$horizon == h, ]; cumsum((b$actual - b$rw)^2 - (b$actual - b$point)^2)}))),
+     xlab = "Bulan target", ylab = "Kumulatif (RW - BMA)", main = "Selisih kumulatif squared error")
+for (i in seq_along(horizons)) {
+  b <- test[test$horizon == horizons[i], ]
+  lines(as.Date(paste0(ym(b$target), "-01")),
+        cumsum((b$actual - b$rw)^2 - (b$actual - b$point)^2), col = cols[i], lwd = 2)
+}
+abline(h = 0, lty = 3)
+legend("topleft", paste0("h = ", horizons), col = cols[seq_along(horizons)], lwd = 2, bty = "n")
+par(op)
+```
+
+# Forecast akhir
+
+```{r forecast-akhir}
+ir <- match(final_origin, d$mdate); x0 <- unlist(d[ir, preds]); s0 <- d$usdidr[ir]
+final_fc <- do.call(rbind, lapply(horizons, function(h) {
+  p <- bma_predict(final_fits[[paste0("h", h)]], x0)
+  q <- bma_quantiles(p)
+  data.frame(horizon = h, bulan_target = ym(final_origin + h), spot_anchor = s0,
+             mean_change_pct = p$mean, median = s0*exp(q[3]/100),
+             lower95 = s0*exp(q[1]/100), lower80 = s0*exp(q[2]/100),
+             upper80 = s0*exp(q[4]/100), upper95 = s0*exp(q[5]/100))
+}))
+tbl(final_fc, 1)
+write.csv(final_fc, out("bma_final_forecast.csv"), row.names = FALSE)
+cat("Anchor:", ym(final_origin), "=", s0, "\n")
+```
+
+Forecast ini **tak bersyarat**: prediktor bernilai sebagaimana teramati pada origin, tanpa asumsi
+jalur DXY atau flows ke depan. Untuk skenario bersyarat, gunakan BVARX.
+
+# Ekspor pengaturan
+
+```{r ekspor}
+writeLines(capture.output(sessionInfo()), out("sessionInfo.txt"))
+saveRDS(list(params = params, best_g = best_g, preds = preds, horizons = horizons,
+             validation_origins = val_origins, test_origins = test_origins,
+             latest_complete = latest_complete, final_origin = final_origin,
+             database_md5 = unname(tools::md5sum(params$data_file))),
+        out("bma_settings.rds"))
+cat("Output tersimpan di:", normalizePath(params$output_dir), "\n")
+```
+
+# Referensi
+
+1. Rossi, B. (2013). Exchange Rate Predictability. *Journal of Economic Literature*, 51(4), 1063–1119.
+2. Wright, J. H. (2008). Bayesian Model Averaging and Exchange Rate Forecasts. *Journal of Econometrics*, 146(2), 329–341.
+3. Fernández, C., Ley, E., & Steel, M. F. J. (2001). Benchmark Priors for Bayesian Model Averaging. *Journal of Econometrics*, 100(2), 381–427.
+4. Zellner, A. (1986). On Assessing Prior Distributions and Bayesian Regression Analysis with g-Prior Distributions. Dalam Goel & Zellner (ed.), *Bayesian Inference and Decision Techniques*.
+5. Liang, F., Paulo, R., Molina, G., Clyde, M. A., & Berger, J. O. (2008). Mixtures of g Priors for Bayesian Variable Selection. *JASA*, 103(481), 410–423.
+6. Meese, R. A., & Rogoff, K. (1983). Empirical Exchange Rate Models of the Seventies. *Journal of International Economics*, 14(1–2), 3–24.
+7. Carriero, A., Kapetanios, G., & Marcellino, M. (2009). Forecasting Exchange Rates with a Large Bayesian VAR. *International Journal of Forecasting*, 25(2), 400–417.
+8. Diebold, F. X., & Mariano, R. S. (1995). Comparing Predictive Accuracy. *JBES*, 13(3), 253–263.
+9. Harvey, D., Leybourne, S., & Newbold, P. (1997). Testing the Equality of Prediction Mean Squared Errors. *IJF*, 13(2), 281–291.
+10. Clark, T. E., & West, K. D. (2007). Approximately Normal Tests for Equal Predictive Accuracy in Nested Models. *Journal of Econometrics*, 138(1), 291–311.

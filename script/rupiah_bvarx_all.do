@@ -1,12 +1,14 @@
 * ============================================================================
-* rupiah_bvarx_all.do: SEMUA MODUL DALAM SATU FILE, siap copy-paste (v3, BVARX changes).
+* rupiah_bvarx_all.do: SEMUA MODUL DALAM SATU FILE, siap copy-paste (v4: BMA baseline + skenario BVARX).
 * Cara pakai: buka Do-file Editor (doedit), paste seluruh isi, klik Do (Ctrl+D).
 * Jangan paste ke Command window (blok Mata dan /// hanya jalan sebagai do-file).
-* Digabung dari 00_master.do, 01-04, 06-08; isi dan urutan sama.
+* Digabung dari 00_master.do, 01-04, 06-10; isi dan urutan sama. Modul 09 dan 10 selalu dijalankan
+* di file ini (global run_bma diabaikan); untuk melewatinya, pakai 00_master.do dengan run_bma 0.
 * ============================================================================
 
-**# 0. MASTER: Forecast dan skenario USD/IDR dengan BVARX
-* v3: semua tahap memakai BVARX changes (lihat CHANGELOG.md).
+**# 0. MASTER: Forecast dan skenario USD/IDR, model gabungan (Baseline BMA + skenario BVARX)
+* v4: BVARX changes (01-08) untuk skenario bersyarat, BMA (09) untuk baseline, gabungan (10).
+* Versi BVARX saja (v3.5) ada di archive/v3_5_bvarx/. Lihat CHANGELOG.md.
 * Port Stata dari input/reference/Manual_Model_Rupiah_BVARX.Rmd (versi R).
 * Jalankan seluruh file ini sebagai do-file: do "script/00_master.do".
 * Tutup Database_Rupiah_Bulanan.xlsx dan output Excel di Excel sebelum menjalankan.
@@ -33,17 +35,21 @@ global script "$base\script"
 * Dataset Stata hasil olahan
 global data "$base\intermediate"
 * Hasil akhir
-*   output/figures      grafik PNG siap pakai
+*   output/figures                  grafik model gabungan (hasil utama) dan data
+*   output/figures/komponen_bvarx   grafik komponen BVARX (test, skenario, residual)
+*   output/figures/komponen_bma     grafik komponen BMA (PIP, test)
 *   output/tables       tabel hasil (CSV), juga disalin ke workbook ringkasan
 *   output/diagnostics  uji dan diagnostik (unit root, residual, ESS, akar companion)
 *   output/gph          grafik kerja Stata (.gph)
 global results "$base\output"
 global fig "$results\figures"
+global fig_bvarx "$fig\komponen_bvarx"
+global fig_bma "$fig\komponen_bma"
 global tab "$results\tables"
 global diag "$results\diagnostics"
 global gph "$results\gph"
 global xlsx "$results\rupiah_bvarx_results.xlsx"
-foreach d in data results fig tab diag gph {
+foreach d in data results fig fig_bvarx fig_bma tab diag gph {
 	cap mkdir "${`d'}"
 }
 cap erase "$xlsx"
@@ -102,11 +108,12 @@ end
 **## 0.1 Parameter manual (setara blok params di Rmd)
 * profile: quick (cek alur) | standard | publication (angka untuk naskah)
 global profile "standard"
-* 1 = tambahkan UST10Y sebagai eksogen (putuskan di tahap validation)
-global include_ust 0
 * Jumlah harmonik musiman sin/cos: 1 = periode 12 bulan (manual), 2 = + periode 6 bulan
 * (residual trade balance v2 masih berautokorelasi di lag 6 dan 12)
 global seas_harm 2
+* Prior mean own-lag trade balance (model changes). 0 = manual; 0.7 = sesuai autokorelasi TB
+* (lag 1 = 0,69). Residual TB v3 masih berautokorelasi karena prior 0 + shrinkage ketat.
+global tb_prior_mean 0.7
 * 1 = jalankan uji unit root ADF + Phillips-Perron (01, bagian 1.6)
 global run_adf 1
 * Seed utama (setara set.seed(30102026) di Rmd)
@@ -140,7 +147,30 @@ global release_lag 2
 * Grid validation: start year, lag, lambda (shrinkage)
 global grid_start "2013 2014 2017"
 global grid_p "1 2"
-global grid_lambda "0.10 0.30"
+* lambda diperluas ke 0.03/0.05: v3 memilih 0.10 = batas bawah grid lama
+global grid_lambda "0.03 0.05 0.10 0.30"
+* Eksogen opsional, dipilih validation: UST10Y (level), selisih BI rate - Fed funds (level, pp),
+* VIX (perubahan log). UST sudah diuji di v3.3 dan tidak terpilih, jadi grid_ust = 0 untuk menghemat waktu.
+global grid_ust "0"
+* selisih suku bunga ditolak validation di v3.3 dan v3.4 -> 0 untuk menghemat waktu
+global grid_rate "0"
+* VIX dan dummy ditetapkan dari hasil v3.5 (dummy terpilih; VIX tidak terpilih bersama dummy)
+global grid_vix "0"
+* Impulse dummy bulan ekstrem (|perubahan kurs| > 2,5 sd): 1 di bulan itu, 0 lainnya; dipilih validation
+global grid_dum "1"
+* Prior UIP: selisih BI-Fed masuk persamaan kurs dengan koefisien berpusat di 1/12 (depresiasi = selisih
+* suku bunga per bulan); 0/1 dipilih validation. uip_sd = sd prior (satuan terstandar)
+global grid_uip "0 1"
+global uip_sd 0.05
+* Bayesian Model Averaging (09_bma.do): regresi prediktif langsung, 6 prediktor, g-prior tetap
+global run_bma 1
+global bma_preds "ds ddxy dust flow2 tb2 dres2"
+* g dikunci ke 0.25: terpilih di validation run 30 Okt 2026 18:05 dari grid 0.25/1/4/n
+* (skor 0,968 / 0,973 / 0,992 / 0,987). Kembalikan ke "0.25 1 4 n" untuk validasi ulang g.
+global bma_g_grid "0.25"
+global bma_start 2014
+global bma_inc 0.5
+global outlier_months "2015m10 2018m11 2020m3 2020m4"
 * Origin validation (Jan 2021 - Jun 2023) dan awal test (Jan 2024)
 global val_from = ym(2021,1)
 global val_to   = ym(2023,6)
@@ -169,7 +199,7 @@ set seed $seed
 **## 0.3 Log
 cap log close main
 log using "$results\run_log.log", replace text name(main)
-di "Mulai: `c(current_date)' `c(current_time)'  profile=$profile  include_ust=$include_ust"
+di "Mulai: `c(current_date)' `c(current_time)'  profile=$profile"
 timer clear 1
 timer on 1
 
@@ -260,6 +290,9 @@ gen double x_dxy   = 100*ln(dxy)
 gen double dy_s    = D.y_s
 gen double dy_res  = D.y_res
 gen double dx_dxy  = D.x_dxy
+* VIX: 100 log level dan perubahannya (eksogen opsional)
+gen double x_vix   = 100*ln(vix)
+gen double dx_vix  = D.x_vix
 gen double x_ust   = ust10y_pct
 gen double sin12   = sin(2*_pi*month/12)
 gen double cos12   = cos(2*_pi*month/12)
@@ -391,7 +424,7 @@ mata:
 mata set matastrict on
 
 struct bvdata {
-	real colvector mdate, usdidr, dxy, ust
+	real colvector mdate, usdidr, dxy, ust, rate, vix
 	real matrix Y, Xall
 	real scalar nharm
 	string scalar mode
@@ -417,6 +450,24 @@ struct bvpred {
 	real scalar ess, ndraw, root_gt1, root_gt105
 }
 
+// Impulse dummy untuk bulan di global outlier_months (format "2020m3"): kolom per bulan,
+// 1 pada bulan itu, 0 lainnya (termasuk semua bulan forecast).
+real matrix bv_dummies(real colvector m)
+{
+	string rowvector ds
+	real matrix R
+	real scalar i, pm, mm
+	ds = tokens(st_global("outlier_months"))
+	R = J(rows(m), cols(ds), 0)
+	for (i = 1; i <= cols(ds); i++) {
+		pm = strpos(ds[i], "m")
+		if (pm < 5) _error("format bulan outlier harus YYYYmM: " + ds[i])
+		mm = 12*(strtoreal(substr(ds[i], 1, pm-1)) - 1960) + strtoreal(substr(ds[i], pm+1, .)) - 1
+		R[., i] = (m :== mm)
+	}
+	return(R)
+}
+
 // Muat data dari dataset Stata di memori (database.dta). mode = "levels" | "changes"
 struct bvdata scalar bv_load(string scalar mode)
 {
@@ -429,13 +480,17 @@ struct bvdata scalar bv_load(string scalar mode)
 	d.usdidr = st_data(., "usdidr")
 	d.dxy    = st_data(., "dxy")
 	d.ust    = st_data(., "x_ust")
+	d.rate   = st_data(., "bi_ff_diff_pp")
+	d.vix    = st_data(., "vix")
 	if (mode == "levels") {
 		d.Y    = st_data(., ("y_s", "y_tb", "y_flows", "y_res"))
-		d.Xall = st_data(., ("x_dxy", "x_ust", "sin12", "cos12", "sin6", "cos6"))
+		d.Xall = st_data(., ("x_dxy", "x_ust", "sin12", "cos12", "sin6", "cos6", "bi_ff_diff_pp", "x_vix"))
+		d.Xall = d.Xall, bv_dummies(d.mdate)
 	}
 	else {
 		d.Y    = st_data(., ("dy_s", "y_tb", "y_flows", "dy_res"))
-		d.Xall = st_data(., ("dx_dxy", "x_ust", "sin12", "cos12", "sin6", "cos6"))
+		d.Xall = st_data(., ("dx_dxy", "x_ust", "sin12", "cos12", "sin6", "cos6", "bi_ff_diff_pp", "dx_vix"))
+		d.Xall = d.Xall, bv_dummies(d.mdate)
 	}
 	if (any((d.mdate[|2 \ rows(d.mdate)|] - d.mdate[|1 \ rows(d.mdate)-1|]) :!= 1)) {
 		_error("mdate harus berurutan tanpa celah")
@@ -500,12 +555,18 @@ struct bvfit scalar bv_fit(struct bvdata scalar d, real scalar cutoff, real scal
 	real colvector idx, good, r, yj
 	real rowvector own, v0, arvar, ybar, xbar, zr
 	real matrix Y0, X0, Ys, Xs, Z, C0, V0i, E, D, S0, Xr, Yd, Zd, Ya, Za, Ea
-	real scalar K, i, j, l, T, nu0, last
+	real scalar K, i, j, l, T, nu0, last, tbm, kr
 
 	K = cols(d.Y)
 	f.xc = inc_ust ? (1, 2, 3, 4) : (1, 3, 4)
 	// harmonik musiman kedua (periode 6 bulan), global seas_harm = 2
 	if (d.nharm >= 2) f.xc = f.xc, (5, 6)
+	// selisih BI rate - Fed funds (level, pp): global use_rate = 1, atau use_uip = 1 (dengan prior UIP)
+	if (st_global("use_rate") == "1" | st_global("use_uip") == "1") f.xc = f.xc, 7
+	// VIX (perubahan log pada model changes), global use_vix = 1
+	if (st_global("use_vix") == "1") f.xc = f.xc, 8
+	// impulse dummy bulan ekstrem (kolom 9 dst.), global use_dum = 1
+	if (st_global("use_dum") == "1" & cols(d.Xall) > 8) f.xc = f.xc, (9..(cols(d.Xall)))
 	idx = selectindex(d.mdate :>= 12*(start_year - 1960) :& d.mdate :<= cutoff)
 	idx = select(idx, idx :> p)
 	good = J(rows(idx), 1, 0)
@@ -521,6 +582,9 @@ struct bvfit scalar bv_fit(struct bvdata scalar d, real scalar cutoff, real scal
 	Y0 = d.Y[idx, .]
 	f.my = mean(Y0)
 	f.sy = sqrt(diagonal(variance(Y0)))'
+	X0 = d.Xall[idx, f.xc]
+	// buang eksogen yang konstan di sampel training (mis. dummy di luar sampel)
+	f.xc = select(f.xc, (sqrt(diagonal(variance(X0)))' :> 0))
 	X0 = d.Xall[idx, f.xc]
 	f.mx = mean(X0)
 	f.sx = sqrt(diagonal(variance(X0)))'
@@ -540,14 +604,27 @@ struct bvfit scalar bv_fit(struct bvdata scalar d, real scalar cutoff, real scal
 		arvar[j] = max((mean(r:^2), 1e-4))
 	}
 
-	// Prior: mean own first lag = 1 untuk level (log kurs, log cadangan), 0 lainnya
+	// Prior: mean own first lag = 1 untuk level (log kurs, log cadangan), 0 lainnya.
+	// Model changes: TB tetap level dan persisten (autokorelasi 0,5-0,7 sampai lag 12), jadi
+	// own-lag TB berpusat di global tb_prior_mean (default 0 = manual); flows tidak persisten (0).
 	f.M = cols(Z)
 	C0  = J(f.M, K, 0)
-	own = d.mode == "levels" ? (1, 0, 0, 1) : J(1, K, 0)
+	tbm = strtoreal(st_global("tb_prior_mean"))
+	if (missing(tbm)) tbm = 0
+	own = d.mode == "levels" ? (1, 0, 0, 1) : (0, tbm, 0, 0)
 	for (j = 1; j <= K; j++) C0[1+j, j] = own[j]
 	v0 = 100
 	for (l = 1; l <= p; l++) v0 = v0, lambda^2 :/ (l^2 :* arvar)
 	v0 = v0, J(1, cols(f.xc), 0.5^2)
+	// Prior UIP: koefisien selisih suku bunga di persamaan kurs berpusat di 1/12 (satuan asli:
+	// selisih 1 pp/tahun -> depresiasi 1/12 % per bulan), sd = global uip_sd (satuan terstandar)
+	if (st_global("use_uip") == "1") {
+		kr = selectindex(f.xc :== 7)
+		if (cols(kr) == 1) {
+			C0[1+K*p+kr, 1] = f.sx[kr]/(12*f.sy[1])
+			v0[1+K*p+kr] = strtoreal(st_global("uip_sd"))^2
+		}
+	}
 	V0i = diag(1 :/ v0)
 
 	// Dummy observations (hanya model level): ybar = rata-rata p observasi pra-sampel
@@ -623,6 +700,7 @@ struct bvfut scalar bv_future(struct bvfit scalar f, struct bvdata scalar d, rea
 	struct bvfut scalar u
 	real colvector frac, known, logdxy, xd, mon, ix
 	real scalar r0, H, i
+	real colvector rate, vixp, logvix, xv
 	real matrix Xall
 	if (origin < f.cutoff | h < 1) _error("origin harus >= cutoff dan h >= 1")
 	u.origin = origin
@@ -634,22 +712,31 @@ struct bvfut scalar bv_future(struct bvfit scalar f, struct bvdata scalar d, rea
 	frac  = ((u.times :- origin) :* (u.times :> origin)) / h
 	u.dxy = d.dxy[r0] :* (1 + g):^frac
 	u.ust = d.ust[r0] :+ du :* frac
+	// selisih suku bunga ke depan: tetap di nilai origin (bulan teramati memakai realisasi)
+	rate  = J(H, 1, d.rate[r0])
+	// VIX ke depan: tetap di nilai origin (perubahan 0)
+	vixp  = J(H, 1, d.vix[r0])
 	known = u.times :<= origin
 	ix = J(0, 1, .)
 	for (i = 1; i <= H; i++) {
 		if (known[i]) {
 			u.dxy[i] = d.dxy[bv_row(d, u.times[i])]
 			u.ust[i] = d.ust[bv_row(d, u.times[i])]
+			rate[i]  = d.rate[bv_row(d, u.times[i])]
+			vixp[i]  = d.vix[bv_row(d, u.times[i])]
 			ix = ix \ i
 		}
 	}
 	logdxy = 100*ln(u.dxy)
+	logvix = 100*ln(vixp)
+	if (f.mode == "changes") xv = logvix - ((100*ln(d.vix[bv_row(d, f.cutoff)])) \ logvix[|1 \ H|])[|1 \ H|]
+	else xv = logvix
 	if (f.mode == "changes") {
 		xd = logdxy - ((100*ln(d.dxy[bv_row(d, f.cutoff)])) \ logdxy[|1 \ H|])[|1 \ H|]
 	}
 	else xd = logdxy
 	mon = mod(u.times, 12) :+ 1
-	Xall = xd, u.ust, sin(2*pi()*mon/12), cos(2*pi()*mon/12), sin(4*pi()*mon/12), cos(4*pi()*mon/12)
+	Xall = xd, u.ust, sin(2*pi()*mon/12), cos(2*pi()*mon/12), sin(4*pi()*mon/12), cos(4*pi()*mon/12), rate, xv, bv_dummies(u.times)
 	u.X = Xall[., f.xc]
 	// Kondisi: kolom (step, variabel 1..4, nilai). Bridge USD/IDR teramati.
 	u.cond = J(0, 3, .)
@@ -937,18 +1024,18 @@ real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scala
 	return(X)
 }
 
-// Efek kontemporer DXY (dampak bulan yang sama) per persamaan, satuan asli model:
-// +1 unit x_dxy (= +1% DXY pada model changes) -> perubahan y_j. Posterior marginal C_ij
+// Efek kontemporer variabel eksogen ke-k (dampak bulan yang sama) per persamaan, satuan asli model:
+// +1 unit x_k (k = 1: +1% DXY pada model changes) -> perubahan y_j. Posterior marginal C_ij
 // adalah matrix-t: mean Cn_ij, varians Vn_ii * Sn_jj / (nu - K - 1).
 // Keluaran K x 3: (persamaan, mean, sd).
-real matrix bv_dxy_effect(struct bvfit scalar f)
+real matrix bv_x_effect(struct bvfit scalar f, real scalar k)
 {
 	real matrix R
 	real scalar r, j, sc
-	r = 1 + f.K*f.p + 1
+	r = 1 + f.K*f.p + k
 	R = J(f.K, 3, .)
 	for (j = 1; j <= f.K; j++) {
-		sc = f.sy[j]/f.sx[1]
+		sc = f.sy[j]/f.sx[k]
 		R[j, 1] = j
 		R[j, 2] = f.Cn[r, j]*sc
 		R[j, 3] = sqrt(f.Vn[r, r]*f.Sn[j, j]/(f.nu - f.K - 1))*sc
@@ -960,7 +1047,7 @@ real matrix bv_dxy_effect(struct bvfit scalar f)
 void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar lambda, real scalar inc_ust, real scalar nd, real matrix shock, real rowvector chz, real scalar soc)
 {
 	external struct bvdata scalar D
-	external real matrix FIN_resid, FIN_tab, FIN_diag, FIN_cond, FIN_glob, FIN_vars, FIN_info, FIN_dxy
+	external real matrix FIN_resid, FIN_tab, FIN_diag, FIN_cond, FIN_glob, FIN_vars, FIN_info, FIN_dxy, FIN_vix
 	struct bvfit scalar f
 	struct bvfut scalar ub, u
 	struct bvpred scalar pb, ps
@@ -972,7 +1059,10 @@ void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real sc
 	f = bv_fit(D, cutoff, sy0, p, lambda, inc_ust, soc)
 	FIN_resid = D.mdate[f.idx], f.resid
 	FIN_info = (f.n, D.mdate[f.idx[1]], f.cutoff, origin)
-	FIN_dxy = bv_dxy_effect(f)
+	FIN_dxy = bv_x_effect(f, 1)
+	// VIX (kolom 8) jika dipakai
+	FIN_vix = J(0, 3, .)
+	if (any(f.xc :== 8)) FIN_vix = bv_x_effect(f, selectindex(f.xc :== 8))
 
 	ub = bv_future(f, D, origin, H, 0, 0)
 	// Bridge makro yang sudah tersedia di snapshot (variabel 2..4)
@@ -1009,14 +1099,49 @@ void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real sc
 }
 end
 
+**## 2.7 Benchmark dan kombinasi pada backtest yang sama (program Stata)
+* Input: dataset backtest (origin, horizon, actual, rw, point). Output per horizon: RMSE BVARX,
+* random walk, random walk + drift BI-Fed (selisih pada origin / 12 per bulan), kombinasi
+* (rata-rata BVARX dan RW + drift), dan rasio terhadap RW. label = nama periode.
+cap program drop bv_bench
+program define bv_bench
+	args label
+	preserve
+		use mdate bi_ff_diff_pp using "$data\database.dta", clear
+		rename mdate origin
+		tempfile rr
+		save `rr'
+	restore
+	merge m:1 origin using `rr', keep(match) nogen
+	gen double rw_drift = rw*exp(bi_ff_diff_pp/100/12*horizon)
+	gen double combo = (point + rw_drift)/2
+	gen double e_bvar = (actual - point)^2
+	gen double e_rw = (actual - rw)^2
+	gen double e_rwd = (actual - rw_drift)^2
+	gen double e_combo = (actual - combo)^2
+	collapse (count) n=origin (mean) e_bvar e_rw e_rwd e_combo, by(horizon)
+	foreach v in bvar rw rwd combo {
+		gen double rmse_`v' = sqrt(e_`v')
+	}
+	foreach v in bvar rwd combo {
+		gen double rel_`v' = rmse_`v'/rmse_rw
+	}
+	drop e_*
+	format n %9.0g
+	gen str12 period = "`label'"
+	order period horizon n rmse_rw rmse_bvar rmse_rwd rmse_combo rel_bvar rel_rwd rel_combo
+end
+
 * ---------------------------------------------------------------- 03_validation.do
-**# 3. VALIDATION: PILIH START YEAR, LAG, LAMBDA (BVARX changes)
+**# 3. VALIDATION: PILIH START YEAR, LAG, LAMBDA, EKSOGEN (BVARX changes)
 * Rmd: chunk fungsi-backtest (bagian grid). Origin Jan 2021 - Jun 2023, target terakhir Des 2023.
 * Skor = rata-rata relative RMSE (BVARX/RW) pada h = 1, 3, 6. Lebih kecil lebih baik.
+* Grid: start year x lag x lambda x UST10Y x selisih BI-Fed x VIX x dummy outlier x prior UIP (sesuai global grid_*).
 * Aturan tie (ditetapkan sebelum melihat test): skor dalam 1% dari minimum -> pilih 2014,
-* lalu 2013, lalu 2017; kemudian lag lebih pendek; kemudian lambda lebih kecil (shrinkage kuat).
+* lalu 2013, lalu 2017; kemudian lag lebih pendek; kemudian lambda lebih kecil (shrinkage kuat);
+* kemudian tanpa UST, tanpa selisih suku bunga, tanpa VIX, tanpa dummy, tanpa prior UIP (model lebih sederhana).
 * Menulis: intermediate/validation_grid.dta, validation_backtests.dta
-* Output:  tables/T2_validation_grid; globals best_start best_p best_lambda
+* Output:  tables/T2_validation_grid; globals best_start best_p best_lambda best_ust best_rate best_vix best_dum best_uip
 
 local hmax : word count $horizons
 local hmax : word `hmax' of $horizons
@@ -1027,34 +1152,53 @@ use "$data\database.dta", clear
 mata: D = bv_load("$model_mode")
 
 tempname pv
-postfile `pv' start_year p double lambda score rrmse_h1 rrmse_h3 rrmse_h6 min_ess_ratio ///
+postfile `pv' start_year p double lambda ust rate vix dum uip score rrmse_h1 rrmse_h3 rrmse_h6 min_ess_ratio ///
 	using "$data\validation_grid.dta", replace
 tempfile allbt
 local first 1
 foreach sy of global grid_start {
 	foreach p of global grid_p {
 		foreach lam of global grid_lambda {
-			di as txt "Validation: start=`sy' p=`p' lambda=`lam'"
-			mata: R = bv_backtest(D, `sy', `p', `lam', $include_ust, ($val_from::$val_to), ///
-				$n_val, 10000, $release_lag, hz, 0)
-			mata: bv_tostata(R, bv_bt_names())
-			gen start_year = `sy'
-			gen p = `p'
-			gen double lambda = `lam'
-			if !`first' append using `allbt'
-			save `allbt', replace
-			local first 0
-			keep if start_year == `sy' & p == `p' & lambda == `lam'
-			bv_score
-			qui sum relative_rmse
-			local sc = r(mean)
-			forval i = 1/3 {
-				local r`i' = relative_rmse[`i']
+			foreach u of global grid_ust {
+				foreach rt of global grid_rate {
+				foreach vx of global grid_vix {
+				foreach dm of global grid_dum {
+				foreach ui of global grid_uip {
+					di as txt "Validation: start=`sy' p=`p' lambda=`lam' ust=`u' rate=`rt' vix=`vx' dum=`dm' uip=`ui'"
+					global use_rate `rt'
+					global use_vix `vx'
+					global use_dum `dm'
+					global use_uip `ui'
+					mata: R = bv_backtest(D, `sy', `p', `lam', `u', ($val_from::$val_to), ///
+						$n_val, 10000, $release_lag, hz, 0)
+					mata: bv_tostata(R, bv_bt_names())
+					gen start_year = `sy'
+					gen p = `p'
+					gen double lambda = `lam'
+					gen ust = `u'
+					gen rate = `rt'
+					gen vix = `vx'
+					gen dum = `dm'
+					gen uip = `ui'
+					if !`first' append using `allbt'
+					save `allbt', replace
+					local first 0
+					keep if start_year == `sy' & p == `p' & lambda == `lam' & ust == `u' & rate == `rt' & vix == `vx' & dum == `dm' & uip == `ui'
+					bv_score
+					qui sum relative_rmse
+					local sc = r(mean)
+					forval i = 1/3 {
+						local r`i' = relative_rmse[`i']
+					}
+					qui sum min_ess_ratio
+					post `pv' (`sy') (`p') (`lam') (`u') (`rt') (`vx') (`dm') (`ui') (`sc') (`r1') (`r2') (`r3') (r(min))
+				}
 			}
-			qui sum min_ess_ratio
-			post `pv' (`sy') (`p') (`lam') (`sc') (`r1') (`r2') (`r3') (r(min))
 		}
 	}
+}
+}
+}
 }
 postclose `pv'
 use `allbt', clear
@@ -1066,19 +1210,28 @@ use "$data\validation_grid.dta", clear
 qui sum score
 gen byte eligible = score <= r(min)*1.01
 gen byte pref = cond(start_year == 2014, 0, cond(start_year == 2013, 1, 2))
-gsort -eligible pref p lambda
+gsort -eligible pref p lambda ust rate vix dum uip
 gen byte chosen = _n == 1
 global best_start = start_year[1]
 global best_p = p[1]
 global best_lambda = lambda[1]
+global best_ust = ust[1]
+global best_rate = rate[1]
+global use_rate $best_rate
+global best_vix = vix[1]
+global use_vix $best_vix
+global best_dum = dum[1]
+global use_dum $best_dum
+global best_uip = uip[1]
+global use_uip $best_uip
 drop pref
 sort score
 format score rrmse_h* min_ess_ratio %9.4f
-list, noobs clean
+list in 1/10, noobs clean
 save "$data\validation_grid.dta", replace
 bv_out tab "T2_validation_grid"
 
-di as res "Spesifikasi terkunci: start=$best_start  p=$best_p  lambda=$best_lambda  (model $model_mode)"
+di as res "Spesifikasi terkunci: start=$best_start  p=$best_p  lambda=$best_lambda  ust=$best_ust  rate=$best_rate  vix=$best_vix  dum=$best_dum  uip=$best_uip  (model $model_mode)"
 if $best_start != 2014 di as txt "Catatan: 2014 tidak terpilih; laporkan apa adanya (jangan pindahkan test)."
 
 * ---------------------------------------------------------------- 04_test.do
@@ -1086,7 +1239,7 @@ if $best_start != 2014 di as txt "Catatan: 2014 tidak terpilih; laporkan apa ada
 * Rmd: chunk test-terkunci, bootstrap-error, plot-error-test.
 * Origin Jan 2024 s/d (bulan lengkap terakhir - 6). Spesifikasi dari 03, tidak dipilih ulang.
 * Menulis: intermediate/test_forecasts.dta, test_scores.dta, test_bootstrap.dta
-* Output:  tables/T3_test_forecasts, T4_test_scores, T5_test_bootstrap;
+* Output:  tables/T3_test_forecasts, T4_test_scores, T5_test_bootstrap, T6_benchmarks;
 *          figures/4_test_h1.png, 4_test_h3.png, 4_test_h6.png, 4_test_rmse.png
 
 local hmax : word count $horizons
@@ -1097,7 +1250,7 @@ mata: hz = strtoreal(tokens(st_global("horizons")))
 
 use "$data\database.dta", clear
 mata: D = bv_load("$model_mode")
-mata: R = bv_backtest(D, $best_start, $best_p, $best_lambda, $include_ust, ///
+mata: R = bv_backtest(D, $best_start, $best_p, $best_lambda, $best_ust, ///
 	($test_from::$test_to), $n_test, 20000, $release_lag, hz, 0)
 mata: bv_tostata(R, bv_bt_names())
 format origin target %tm
@@ -1138,6 +1291,23 @@ list, noobs clean
 save "$data\test_bootstrap.dta", replace
 bv_out tab "T5_test_bootstrap"
 
+**## 4.4 Benchmark dan kombinasi: validation (spesifikasi terkunci) dan test
+* rel_* = RMSE / RMSE random walk (< 1 = lebih akurat). Kombinasi = rata-rata BVARX dan RW + drift BI-Fed.
+use "$data\validation_backtests.dta", clear
+keep if start_year == $best_start & p == $best_p & lambda == $best_lambda & ust == $best_ust & rate == $best_rate & vix == $best_vix & dum == $best_dum & uip == $best_uip
+bv_bench "validation"
+tempfile bv
+save `bv'
+use "$data\test_forecasts.dta", clear
+bv_bench "test"
+append using `bv'
+sort period horizon
+format rmse_* %9.1f
+format rel_* %6.3f
+list, noobs sepby(period)
+save "$data\benchmarks.dta", replace
+bv_out tab "T6_benchmarks"
+
 **## 4.3 Grafik aktual vs BVARX vs RW per horizon
 foreach h of global horizons {
 	use "$data\test_forecasts.dta", clear
@@ -1150,7 +1320,7 @@ foreach h of global horizons {
 		legend(order(2 "Aktual" 3 "BVARX median" 4 "Random walk" 1 "Band 80% BVARX") rows(1) size(small) position(6)) ///
 		xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) graphregion(color(white)) name(test_h`h', replace)
 	graph save "$gph\4_test_h`h'.gph", replace
-	graph export "$fig\4_test_h`h'.png", replace width(1800)
+	graph export "$fig_bvarx\4_test_h`h'.png", replace width(1800)
 }
 
 use "$data\test_scores.dta", clear
@@ -1160,7 +1330,7 @@ graph bar rmse_bvar rmse_rw, over(horizon, relabel(1 "h=1" 2 "h=3" 3 "h=6")) ///
 	title("Test 2024-2026: RMSE BVARX $model_mode vs random walk", size(medium)) blabel(bar, format(%9.0f) size(vsmall)) ///
 	graphregion(color(white)) name(test_rmse, replace)
 graph save "$gph\4_test_rmse.gph", replace
-graph export "$fig\4_test_rmse.png", replace width(1800)
+graph export "$fig_bvarx\4_test_rmse.png", replace width(1800)
 
 * ---------------------------------------------------------------- 06_final_scenarios.do
 **# 6. FIT AKHIR, DIAGNOSTIK, BASELINE DAN SKENARIO BERSYARAT
@@ -1183,7 +1353,7 @@ graph export "$fig\4_test_rmse.png", replace width(1800)
 use "$data\database.dta", clear
 mata: D = bv_load("$model_mode")
 mata: bv_final_run($latest_complete, $final_origin, $H_final, $best_start, $best_p, $best_lambda, ///
-	$include_ust, $n_final, $shock_mat, strtoreal(tokens(st_global("cond_horizons"))), 0)
+	$best_ust, $n_final, $shock_mat, strtoreal(tokens(st_global("cond_horizons"))), 0)
 mata: st_global("fin_n", strofreal(FIN_info[1])); st_global("fin_from", strofreal(FIN_info[2]))
 di "Training akhir: " %tm $fin_from " sampai " %tm $latest_complete "; N = $fin_n"
 
@@ -1263,7 +1433,7 @@ foreach v in res_s res_tb res_flows res_res {
 }
 graph combine acf1 acf2 acf3 acf4, cols(2) graphregion(color(white)) name(resid_acf, replace)
 graph save "$gph\6_residual_acf.gph", replace
-graph export "$fig\6_residual_acf.png", replace width(1800)
+graph export "$fig_bvarx\6_residual_acf.png", replace width(1800)
 
 **## 6.4 Tabel baseline dan skenario
 mata: bv_tostata(FIN_tab, ("scenario", "mdate", "lower95", "lower80", "median", "upper80", "upper95", "ess", "ess_ratio"))
@@ -1345,6 +1515,30 @@ list, noobs clean
 save "$data\dxy_effect.dta", replace
 bv_out diag "D6_dxy_effect"
 
+* Efek kontemporer VIX (jika terpilih): +1% VIX pada bulan yang sama
+if $best_vix {
+	mata: bv_tostata(FIN_vix, ("eq", "effect", "sd"))
+	gen str24 variable = word("USD/IDR TB Flows Cadangan", eq)
+	gen str24 unit = cond(inlist(eq, 1, 4), "% perubahan", cond(eq == 2, "USD bn", "Rp tn"))
+	foreach v in effect sd {
+		replace `v' = `v'*10 if eq == 3
+	}
+	gen double lo90 = effect - invnormal(0.95)*sd
+	gen double hi90 = effect + invnormal(0.95)*sd
+	gen str32 conclusion = cond(lo90 > 0 | hi90 < 0, "berbeda dari nol (90%)", "tidak jelas (interval meliputi 0)")
+	drop eq
+	order variable unit effect sd lo90 hi90 conclusion
+	format effect sd lo90 hi90 %8.4f
+	list, noobs clean
+	save "$data\vix_effect.dta", replace
+	bv_out diag "D7_vix_effect"
+}
+else {
+	* VIX tidak terpilih: hapus hasil lama agar tidak menyesatkan
+	cap erase "$diag\D7_vix_effect.csv"
+	cap erase "$data\vix_effect.dta"
+}
+
 **## 6.5 Grafik: fan chart baseline + median skenario, dengan riwayat 24 bulan
 use "$data\scenario_spot.dta", clear
 keep scenario mdate lower95 lower80 median upper80 upper95
@@ -1374,7 +1568,7 @@ twoway (rarea lower951 upper951 mdate, color("24 90 141%10") lwidth(none)) ///
 	legend(order(3 "Aktual" 4 "Baseline" 5 "Adverse" 6 "Upside" 7 "Severe Adverse" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
 	graphregion(color(white)) name(scen_fan, replace)
 graph save "$gph\6_scenarios_fan.gph", replace
-graph export "$fig\6_scenarios_fan.png", replace width(1800)
+graph export "$fig_bvarx\6_scenarios_fan.png", replace width(1800)
 
 
 **## 6.6 Asumsi makro per skenario: DXY, trade balance, flows (grafik + tabel ringkas)
@@ -1422,7 +1616,7 @@ graph combine mac1 mac2 mac3, cols(3) graphregion(color(white)) xsize(13) ysize(
 		"Angka berlabel = nilai pada h = 3 dan 6 bulan (dikunci pada skenario non-baseline). TB dan flows Baseline = median model.", size(vsmall)) ///
 	name(scen_macro, replace)
 graph save "$gph\6_scenario_macro.gph", replace
-graph export "$fig\6_scenario_macro.png", replace width(2600)
+graph export "$fig_bvarx\6_scenario_macro.png", replace width(2600)
 
 **## 6.7 Tabel ringkas skenario (asumsi + hasil USD/IDR), juga sebagai PNG
 use "$data\scenario_macro_paths.dta", clear
@@ -1499,7 +1693,7 @@ twoway scatteri 0 0 100 100, msymbol(none) xscale(off range(0 120)) yscale(off r
 	note("TB dan flows pada Adverse/Upside/Severe Adverse = median Baseline +/- shock (00_master.do). Rentang = interval prediktif 80%.", size(vsmall)) ///
 	graphregion(color(white)) plotregion(style(none)) xsize(13) ysize(4) legend(off) name(scen_table, replace)
 graph save "$gph\6_scenario_table.gph", replace
-graph export "$fig\6_scenario_table.png", replace width(2600)
+graph export "$fig_bvarx\6_scenario_table.png", replace width(2600)
 
 **## 6.8 Tabel PNG: forecast bulanan USD/IDR per skenario (median [rentang 80%])
 use "$data\scenario_spot.dta", clear
@@ -1509,7 +1703,7 @@ keep scenario mdate cell
 reshape wide cell, i(mdate) j(scenario)
 gen str12 bulan = string(mdate, "%tmMon_CCYY")
 sort mdate
-bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\6_forecast_table.png") ///
+bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig_bvarx\6_forecast_table.png") ///
 	title("Forecast USD/IDR per skenario: median [rentang 80%] (model $model_mode, anchor Sep 2026 = `=strtrim(string($anchor_spot, "%9.0fc"))')") ///
 	heads("Bulan" "Baseline" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
 	note("Asumsi skenario: lihat 6_scenario_macro.png dan 6_scenario_table.png. Rentang = interval prediktif 80% (posterior predictive).")
@@ -1522,8 +1716,8 @@ bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\6_forecast_table.png") ///
 
 **## 7.1 Settings penelitian (reproduksibilitas)
 clear
-local items profile include_ust seed n_val n_test n_final horizons release_lag ///
-	grid_start grid_p grid_lambda best_start best_p best_lambda H_final model_mode seas_harm cond_horizons ///
+local items profile seed n_val n_test n_final horizons release_lag ///
+	grid_start grid_p grid_lambda grid_ust grid_rate grid_vix grid_dum grid_uip uip_sd best_start best_p best_lambda best_ust best_rate best_vix best_dum best_uip outlier_months H_final model_mode seas_harm tb_prior_mean cond_horizons ///
 	dxy_shock tb_shock flows_shock dxy_severe tb_severe flows_severe
 local n : word count `items'
 set obs `=`n'+6'
@@ -1676,8 +1870,9 @@ preserve
 	bv_out tab "T13_forecast_compare_wide"
 restore
 
-**## 8.4 Grafik
+**## 8.4 Grafik (hanya BVARX dan random walk; RW + drift dan kombinasi tetap di tabel T12/T13)
 preserve
+	keep if inlist(model_id, 1, 2)
 	keep model_id mdate median
 	reshape wide median, i(mdate) j(model_id)
 	tempfile w
@@ -1686,22 +1881,20 @@ preserve
 	keep if mdate > $final_origin - 24 & mdate <= $final_origin
 	append using `w'
 	sort mdate
-	forval m = 1/4 {
+	forval m = 1/2 {
 		replace median`m' = usdidr if mdate == $final_origin
 	}
 	twoway (line usdidr mdate, lcolor(black) lwidth(medthick)) ///
 		(line median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
-		(line median2 mdate, lcolor(gs8) lpattern(shortdash)) ///
-		(line median3 mdate, lcolor("164 87 23") lwidth(medthick) lpattern(dash)) ///
-		(line median4 mdate, lcolor(purple) lwidth(medthick) lpattern(longdash)), ///
+		(line median2 mdate, lcolor("164 87 23") lpattern(shortdash)), ///
 		xline($final_origin, lcolor(gs10) lpattern(dot)) ///
-		title("USD/IDR: forecast median BVARX vs benchmark (Baseline, DXY datar)", size(medium)) ///
+		title("USD/IDR: forecast median BVARX vs random walk (Baseline, DXY datar)", size(medium)) ///
 		xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
-		legend(order(1 "Aktual" 2 "BVARX ($model_mode)" 3 "Random walk" 4 "RW + drift BI-Fed" 5 "Kombinasi") ///
+		legend(order(1 "Aktual" 2 "BVARX ($model_mode)" 3 "Random walk") ///
 			rows(1) size(small) position(6)) ///
 		graphregion(color(white)) name(fc_compare, replace)
 	graph save "$gph\8_forecast_compare.gph", replace
-	graph export "$fig\8_forecast_compare.png", replace width(1800)
+	graph export "$fig_bvarx\8_forecast_compare.png", replace width(1800)
 restore
 
 **## 8.5 Tabel PNG: forecast median [rentang 80%] per model
@@ -1715,16 +1908,583 @@ preserve
 		local sc `sc'`sep'`=strtrim(string(relative_rmse[`i'], "%4.2f"))'
 	}
 restore
+keep if inlist(model_id, 1, 2)
 gen str32 cell = strtrim(string(median, "%9.0fc")) + "  [" + strtrim(string(lower80, "%9.0fc")) + " - " + strtrim(string(upper80, "%9.0fc")) + "]"
 keep model_id mdate cell
 reshape wide cell, i(mdate) j(model_id)
 gen str12 bulan = string(mdate, "%tmMon_CCYY")
 sort mdate
-bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\8_forecast_compare_table.png") ///
+bv_pngtable bulan cell1 cell2, file("$fig_bvarx\8_forecast_compare_table.png") ///
 	title("Forecast USD/IDR per model: median [rentang 80%] (Baseline, DXY datar)") ///
-	heads("Bulan" "BVARX ($model_mode)" "Random walk" "RW + drift BI-Fed" "Kombinasi") ///
-	widths(14 26 26 26 26) ///
-	note("Kombinasi = rata-rata BVARX dan RW + drift. Test 2024-2026, relative RMSE BVARX vs random walk (h = 1/3/6): `sc' (< 1 = lebih akurat).")
+	heads("Bulan" "BVARX ($model_mode)" "Random walk") ///
+	widths(14 30 30) ///
+	note("Test 2024-2026, relative RMSE BVARX vs random walk (h = 1/3/6): `sc' (< 1 = lebih akurat).")
+
+* ---------------------------------------------------------------- 09_bma.do
+**# 9. BAYESIAN MODEL AVERAGING (bmaregress) VS RANDOM WALK TANPA DRIFT
+* Regresi prediktif langsung per horizon h: y_h(t) = 100*[log S(t+h) - log S(t)] pada prediktor
+* yang diketahui di akhir bulan t. 6 kandidat (2^6 = 64 model, enumerasi penuh):
+*   ds    perubahan 100 log USD/IDR bulan t          (pasar, bulan t)
+*   ddxy  perubahan 100 log DXY bulan t              (pasar, bulan t)
+*   dust  perubahan UST10Y bulan t (pp)               (pasar, bulan t)
+*   flow2 net flows bulan t-2 (Rp10 tn)               (jeda rilis 2 bulan)
+*   tb2   trade balance bulan t-2 (USD bn)            (jeda rilis 2 bulan)
+*   dres2 perubahan 100 log cadangan bulan t-2        (jeda rilis 2 bulan)
+* Prior: g-prior Zellner dengan g tetap (dipilih di validation dari $bma_g_grid; "n" = g = n, UIP),
+*        prior model binomial dengan peluang inklusi $bma_inc per prediktor (0.5 = seragam atas model).
+* Forecast BMA = rata-rata posterior predictive dibobot probabilitas posterior model (bmapredict, mean).
+* Anti look-ahead: training hanya bulan t dengan t + h <= origin; estimasi ulang di setiap origin;
+*        g dipilih hanya di validation; test hanya untuk menilai.
+* Uji: Diebold-Mariano (koreksi HLN) dan Clark-West (model bersarang terhadap RW), varians Newey-West lag h-1.
+* Menulis: intermediate/bma_backtests.dta, bma_*.dta
+* Output:  tables/B1_bma_validation_g, B2_bma_test_scores, B3_bma_vs_bvarx, B5_bma_final_forecast,
+*          B6_bma_top_models_h*; diagnostics/B4_bma_pip_final;
+*          figures/9_bma_pip_by_origin.png, 9_bma_test_h3.png, 9_bma_cum_sse.png
+
+**## 9.1 Data dan prediktor
+use "$data\database.dta", clear
+tsset mdate, monthly
+gen double ds    = dy_s
+gen double ddxy  = dx_dxy
+gen double dust  = D.ust10y_pct
+gen double flow2 = L2.net_flows_idrtn/10
+gen double tb2   = L2.trade_bal_usdbn
+gen double dres2 = L2.dy_res
+* target untuk semua horizon 1..H_final (forecast akhir bulanan); evaluasi tetap pada $horizons
+forval h = 1/$H_final {
+	gen double y`h' = F`h'.y_s - y_s
+}
+local first = mdate[1]
+save "$data\bma_data.dta", replace
+
+**## 9.2 Program: satu estimasi BMA untuk horizon h, origin r, nilai g
+cap program drop bv_bma_one
+program define bv_bma_one, rclass
+	args h r g
+	local gopt = cond("`g'" == "n", "gprior(uip)", "gprior(fixed `g')")
+	qui bmaregress y`h' $bma_preds if mdate + `h' <= `r' & mdate >= ym($bma_start, 1), ///
+		mprior(binomial $bma_inc) `gopt' notable noheader
+	return scalar n = e(N)
+	tempname P
+	matrix `P' = e(pip)
+	foreach v of global bma_preds {
+		local j = colnumb(`P', "`v'")
+		if !missing(`j') return scalar pip_`v' = `P'[1, `j']
+		else {
+			local j = rownumb(`P', "`v'")
+			return scalar pip_`v' = `P'[`j', 1]
+		}
+	}
+	cap drop _bma_m _bma_s
+	qui bmapredict _bma_m if mdate == `r', mean
+	qui bmapredict _bma_s if mdate == `r', std
+	qui sum _bma_m if mdate == `r'
+	return scalar yhat = r(mean)
+	qui sum _bma_s if mdate == `r'
+	return scalar ysd = r(mean)
+	drop _bma_m _bma_s
+end
+
+* Statistik t Newey-West (Bartlett, lag L) untuk rata-rata x
+mata:
+real scalar bma_nwt(real colvector x, real scalar L)
+{
+	real colvector e
+	real scalar n, m, v, l
+	n = rows(x)
+	m = mean(x)
+	e = x :- m
+	v = sum(e:^2)/n
+	for (l = 1; l <= min((L, n - 1)); l++) {
+		v = v + 2*(1 - l/(L + 1))*sum(e[|l+1 \ n|] :* e[|1 \ n-l|])/n
+	}
+	return(m/sqrt(v/n))
+}
+
+// Matriks Stata -> dataset: kolom "row" = nama baris, kolom lain = nama kolom (dibuat valid)
+void bma_mat2data(string scalar name)
+{
+	real matrix M
+	string colvector rs, cs
+	string scalar v
+	real scalar j
+	M  = st_matrix(name)
+	rs = st_matrixrowstripe(name)[., 2]
+	cs = st_matrixcolstripe(name)[., 2]
+	stata("clear")
+	st_addobs(rows(M))
+	(void) st_addvar("str32", "row")
+	st_sstore(., "row", rs)
+	for (j = 1; j <= cols(M); j++) {
+		v = strtoname(cs[j])
+		if (v == "" | v == "row" | _st_varindex(v) < .) v = "c" + strofreal(j)
+		(void) st_addvar("double", v)
+		st_store(., v, M[., j])
+	}
+}
+end
+
+**## 9.3 Program: backtest untuk daftar origin dan satu g (hasil di-append ke file)
+cap program drop bv_bma_bt
+program define bv_bma_bt
+	args g period o1 o2 file
+	local pipv ""
+	local pipe ""
+	foreach v of global bma_preds {
+		local pipv `pipv' pip_`v'
+		local pipe `pipe' (r(pip_`v'))
+	}
+	use "$data\bma_data.dta", clear
+	local first = mdate[1]
+	tempname pb
+	postfile `pb' str6 g str12 period origin h n actual rw yhat ysd yact `pipv' using "`file'", replace
+	forval r = `o1'/`o2' {
+		local ir = `r' - `first' + 1
+		foreach h of global horizons {
+			local act = usdidr[`ir' + `h']
+			local s0 = usdidr[`ir']
+			bv_bma_one `h' `r' `g'
+			post `pb' ("`g'") ("`period'") (`r') (`h') (r(n)) (`act') (`s0') (r(yhat)) (r(ysd)) ///
+				(100*ln(`act'/`s0')) `pipe'
+		}
+	}
+	postclose `pb'
+end
+
+**## 9.4 Program: skor per horizon (RMSE, relatif RW, arah, DM-HLN, Clark-West)
+cap program drop bv_bma_score
+program define bv_bma_score
+	gen double point = rw*exp(yhat/100)
+	gen double e_m = (actual - point)^2
+	gen double e_r = (actual - rw)^2
+	gen double dl = e_m - e_r
+	gen double cwf = yact^2 - ((yact - yhat)^2 - yhat^2)
+	gen double dirok = sign(yhat) == sign(yact)
+	tempfile base res
+	save `base'
+	tempname ps
+	postfile `ps' horizon n rmse_bma rmse_rw relative_rmse direction dm_hln dm_p cw_t cw_p using `res'
+	foreach h of global horizons {
+		use `base', clear
+		keep if h == `h'
+		sort origin
+		qui sum e_m
+		local mm = r(mean)
+		local n = r(N)
+		qui sum e_r
+		local mr = r(mean)
+		qui sum dirok
+		local dir = r(mean)
+		mata: st_local("dm", strofreal(bma_nwt(st_data(., "dl"), `h' - 1), "%20.0g"))
+		mata: st_local("cw", strofreal(bma_nwt(st_data(., "cwf"), `h' - 1), "%20.0g"))
+		local hln = `dm'*sqrt((`n' + 1 - 2*`h' + `h'*(`h' - 1)/`n')/`n')
+		post `ps' (`h') (`n') (sqrt(`mm')) (sqrt(`mr')) (sqrt(`mm'/`mr')) (`dir') ///
+			(`hln') (2*ttail(`n' - 1, abs(`hln'))) (`cw') (1 - normal(`cw'))
+	}
+	postclose `ps'
+	use `res', clear
+end
+
+**## 9.5 Validation: pilih g (aturan tie: skor dalam 1% dari minimum -> g terkecil)
+tempname pv
+postfile `pv' str6 g gnum score rrmse_h1 rrmse_h3 rrmse_h6 using "$data\bma_validation.dta", replace
+local k 0
+foreach g of global bma_g_grid {
+	local ++k
+	di as txt "BMA validation: g = `g'"
+	tempfile v`k'
+	bv_bma_bt `g' validation $val_from $val_to `v`k''
+	use `v`k'', clear
+	bv_bma_score
+	qui sum relative_rmse
+	local sc = r(mean)
+	post `pv' ("`g'") (cond("`g'" == "n", ., real("`g'"))) (`sc') (relative_rmse[1]) (relative_rmse[2]) (relative_rmse[3])
+}
+postclose `pv'
+use "$data\bma_validation.dta", clear
+qui sum score
+gen byte eligible = score <= r(min)*1.01
+* g = n (UIP) diperlakukan sebagai shrinkage paling lemah
+replace gnum = 1e9 if missing(gnum)
+gsort -eligible gnum
+gen byte chosen = _n == 1
+global bma_best_g = g[1]
+drop gnum
+format score rrmse_h* %6.3f
+list, noobs clean
+bv_out tab "B1_bma_validation_g"
+di as res "BMA: g terpilih = $bma_best_g"
+
+* simpan backtest validation untuk g terpilih
+local k 0
+foreach g of global bma_g_grid {
+	local ++k
+	if "`g'" == "$bma_best_g" {
+		use `v`k'', clear
+		save "$data\bma_val_backtest.dta", replace
+	}
+}
+
+**## 9.6 Test out-of-sample (g terkunci)
+tempfile tt
+bv_bma_bt $bma_best_g test $test_from $test_to `tt'
+use `tt', clear
+save "$data\bma_test_backtest.dta", replace
+bv_bma_score
+format rmse_* %9.1f
+format relative_rmse direction dm_hln dm_p cw_t cw_p %6.3f
+list, noobs
+save "$data\bma_test_scores.dta", replace
+bv_out tab "B2_bma_test_scores"
+
+* Perbandingan dengan BVARX pada origin test yang sama
+use "$data\test_scores.dta", clear
+keep horizon relative_rmse
+rename relative_rmse relative_rmse_bvarx
+merge 1:1 horizon using "$data\bma_test_scores.dta", keepusing(relative_rmse) nogen
+rename relative_rmse relative_rmse_bma
+format relative_rmse_* %6.3f
+list, noobs clean
+bv_out tab "B3_bma_vs_bvarx"
+
+**## 9.7 Forecast akhir dan PIP sampel penuh (origin = final_origin)
+use "$data\bma_data.dta", clear
+local ir = $final_origin - mdate[1] + 1
+foreach v of global bma_preds {
+	if missing(`v'[`ir']) {
+		di as error "BMA: prediktor `v' kosong pada final_origin"
+		exit 459
+	}
+}
+local s0 = usdidr[`ir']
+tempname pf pp
+postfile `pf' h mdate mean_pct sd_pct median lower95 lower80 upper80 upper95 using "$data\bma_final.dta", replace
+postfile `pp' str8 predictor h pip using "$data\bma_pip_final.dta", replace
+* forecast untuk setiap bulan 1..H_final; PIP dan model teratas hanya dilaporkan untuk $horizons
+local hzlist $horizons
+forval h = 1/$H_final {
+	local evalh : list posof "`h'" in hzlist
+	bv_bma_one `h' $final_origin $bma_best_g
+	local m = r(yhat)
+	local s = r(ysd)
+	if `evalh' {
+		foreach v of global bma_preds {
+			post `pp' ("`v'") (`h') (r(pip_`v'))
+		}
+	}
+	* interval: pendekatan normal untuk campuran predictive (mean dan sd analitis BMA)
+	post `pf' (`h') ($final_origin + `h') (`m') (`s') (`s0'*exp(`m'/100)) ///
+		(`s0'*exp((`m' - invnormal(0.975)*`s')/100)) (`s0'*exp((`m' - invnormal(0.90)*`s')/100)) ///
+		(`s0'*exp((`m' + invnormal(0.90)*`s')/100)) (`s0'*exp((`m' + invnormal(0.975)*`s')/100))
+	if !`evalh' continue
+	* model teratas (probabilitas posterior model)
+	di as txt _n "BMA h = `h': 10 model dengan probabilitas posterior tertinggi"
+	bmastats models, top(10)
+	tempname S V
+	matrix `S' = r(summary)
+	matrix `V' = r(varinclmat)
+	preserve
+		clear
+		mata: bma_mat2data("`S'")
+		gen rank = _n
+		bv_out tab "B6_bma_top_models_h`h'"
+		clear
+		mata: bma_mat2data("`V'")
+		bv_out diag "B6_bma_varinclusion_h`h'"
+	restore
+}
+postclose `pf'
+postclose `pp'
+use "$data\bma_final.dta", clear
+format mdate %tm
+format mean_pct sd_pct %6.2f
+format median lower* upper* %9.0f
+list, noobs clean
+bv_out tab "B5_bma_final_forecast"
+use "$data\bma_pip_final.dta", clear
+reshape wide pip, i(predictor) j(h)
+format pip* %6.3f
+list, noobs clean
+bv_out diag "B4_bma_pip_final"
+
+**## 9.8 Grafik
+* PIP sepanjang origin (validation + test, g terpilih)
+use "$data\bma_val_backtest.dta", clear
+append using "$data\bma_test_backtest.dta"
+format origin %tm
+local k 0
+foreach h of global horizons {
+	local ++k
+	twoway (line pip_ds origin if h == `h', lcolor("24 90 141")) ///
+		(line pip_ddxy origin if h == `h', lcolor("164 87 23")) ///
+		(line pip_dust origin if h == `h', lcolor("35 114 74")) ///
+		(line pip_flow2 origin if h == `h', lcolor(purple)) ///
+		(line pip_tb2 origin if h == `h', lcolor(gs8)) ///
+		(line pip_dres2 origin if h == `h', lcolor(maroon)), ///
+		yline(0.5, lpattern(dot) lcolor(gs10)) ylabel(0(0.25)1) ///
+		title("h = `h'", size(medium)) xtitle("") ytitle("PIP") ///
+		xlabel(#4, format(%tmCCYY) labsize(small)) legend(off) ///
+		graphregion(color(white)) name(pip`k', replace) nodraw
+}
+graph combine pip1 pip2 pip3, cols(3) graphregion(color(white)) xsize(12) ysize(4) ///
+	title("BMA: posterior inclusion probability per origin (g = $bma_best_g)", size(medium)) ///
+	note("Biru = USD/IDR (t); oranye = DXY (t); hijau = UST10Y (t); ungu = flows (t-2); abu = trade balance (t-2); merah tua = cadangan (t-2).", size(vsmall)) ///
+	name(bma_pip, replace)
+graph export "$fig_bma\9_bma_pip_by_origin.png", replace width(2400)
+
+* Test h = 3: aktual vs BMA vs RW
+use "$data\bma_test_backtest.dta", clear
+gen target = origin + h
+format target %tm
+gen double point = rw*exp(yhat/100)
+twoway (line actual target if h == 3, lcolor(black) lwidth(medthick)) ///
+	(line point target if h == 3, lcolor("24 90 141") lwidth(medthick)) ///
+	(line rw target if h == 3, lcolor("164 87 23") lpattern(dash)), ///
+	title("Test h = 3: aktual vs BMA vs random walk", size(medium)) xtitle("Bulan target") ytitle("IDR per USD") ///
+	legend(order(1 "Aktual" 2 "BMA" 3 "Random walk") rows(1) position(6)) ///
+	xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) graphregion(color(white)) name(bma_h3, replace)
+graph export "$fig_bma\9_bma_test_h3.png", replace width(1800)
+
+* Selisih kumulatif squared error (RW - BMA): naik = BMA lebih akurat
+sort h origin
+gen double dse = (actual - rw)^2 - (actual - point)^2
+by h: gen double cum_dse = sum(dse)
+twoway (line cum_dse target if h == 1, lcolor("24 90 141") lwidth(medthick)) ///
+	(line cum_dse target if h == 3, lcolor("164 87 23") lwidth(medthick)) ///
+	(line cum_dse target if h == 6, lcolor("35 114 74") lwidth(medthick)), ///
+	yline(0, lpattern(dot)) title("Selisih kumulatif squared error: RW - BMA (naik = BMA lebih akurat)", size(medium)) ///
+	xtitle("Bulan target") ytitle("") legend(order(1 "h = 1" 2 "h = 3" 3 "h = 6") rows(1) position(6)) ///
+	xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) graphregion(color(white)) name(bma_cum, replace)
+graph export "$fig_bma\9_bma_cum_sse.png", replace width(1800)
+
+* ---------------------------------------------------------------- 10_hybrid.do
+**# 10. MODEL GABUNGAN: BASELINE BMA + SELISIH SKENARIO BVARX
+* Baseline = forecast BMA (09): paling akurat out-of-sample (test 2024-2026, relative RMSE
+*            0,99 / 0,94 / 0,86; Clark-West signifikan 5% di h = 6).
+* Skenario  = baseline BMA x rasio (median skenario BVARX / median Baseline BVARX) per bulan.
+*            BVARX dipakai untuk efek bersyarat DXY, trade balance, dan flows (06), karena BMA
+*            (regresi prediktif langsung) tidak menerima jalur variabel ke depan.
+* Rentang   = rentang BMA digeser dengan rasio yang sama (lebar relatif tetap). Rentang ini memuat
+*            ketidakpastian forecast BMA, bukan ketidakpastian tambahan dari jalur skenario.
+* Menulis: intermediate/hybrid_scenarios.dta
+* Output:  tables/T15_hybrid_scenarios, T16_hybrid_summary, T17_hybrid_baseline_test,
+*          T18_hybrid_scenario_assumptions, T19_hybrid_forecast_compare;
+*          figures/10_hybrid_fan, 10_hybrid_table, 10_hybrid_scenario_table, 10_hybrid_macro,
+*          10_test_h1/h3/h6, 10_test_rmse, 10_forecast_compare, 10_forecast_compare_table (.png)
+
+**## 10.1 Rasio skenario BVARX terhadap Baseline BVARX
+use "$data\scenario_spot.dta", clear
+keep scenario mdate median
+bysort mdate: egen double base_bvarx = max(cond(scenario == 1, median, .))
+gen double ratio = median/base_bvarx
+rename median median_bvarx
+tempfile rat
+save `rat'
+
+**## 10.2 Gabungkan dengan forecast BMA
+use "$data\bma_final.dta", clear
+keep mdate median lower80 upper80 lower95 upper95
+rename (median lower80 upper80 lower95 upper95) (bma_median bma_lower80 bma_upper80 bma_lower95 bma_upper95)
+merge 1:m mdate using `rat', assert(match) nogen
+foreach v in median lower80 upper80 lower95 upper95 {
+	gen double `v' = bma_`v'*ratio
+}
+gen double spot_anchor = $anchor_spot
+gen double pct_vs_anchor = 100*(median/spot_anchor - 1)
+gen double scen_shift_pct = 100*(ratio - 1)
+bv_scenlab
+sort scenario mdate
+order scenario mdate median lower80 upper80 lower95 upper95 pct_vs_anchor scen_shift_pct ///
+	median_bvarx bma_median
+format mdate %tm
+format median lower* upper* spot_anchor median_bvarx bma_median %9.0f
+format pct_vs_anchor scen_shift_pct ratio %6.2f
+save "$data\hybrid_scenarios.dta", replace
+list scenario mdate lower80 median upper80 pct_vs_anchor scen_shift_pct, noobs sepby(scenario)
+bv_out tab "T15_hybrid_scenarios"
+
+* Ringkasan pada akhir horizon
+preserve
+	keep if mdate == $final_origin + $H_final
+	keep scenario mdate median lower80 upper80 lower95 upper95 pct_vs_anchor scen_shift_pct
+	list, noobs clean
+	bv_out tab "T16_hybrid_summary"
+restore
+
+**## 10.3 Tabel PNG: forecast bulanan per skenario
+preserve
+	gen str32 cell = strtrim(string(median, "%9.0fc")) + "  [" + strtrim(string(lower80, "%9.0fc")) + " - " + strtrim(string(upper80, "%9.0fc")) + "]"
+	keep scenario mdate cell
+	reshape wide cell, i(mdate) j(scenario)
+	gen str12 bulan = string(mdate, "%tmMon_CCYY")
+	sort mdate
+	bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\10_hybrid_table.png") ///
+		title("Forecast USD/IDR per skenario: median [rentang 80%], anchor Sep 2026 =`=strtrim(string($anchor_spot, "%9.0fc"))'") ///
+		heads("Bulan" "Baseline (BMA)" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
+		note("Baseline = BMA. Skenario = Baseline BMA x (skenario / baseline) BVARX. Rentang = interval prediktif 80% BMA, digeser sesuai skenario.")
+restore
+
+**## 10.4 Fan chart: riwayat 24 bulan + Baseline BMA (band 80/95%) + median skenario
+keep scenario mdate median lower80 upper80 lower95 upper95
+reshape wide median lower80 upper80 lower95 upper95, i(mdate) j(scenario)
+tempfile hw
+save `hw'
+use mdate usdidr using "$data\database.dta", clear
+keep if mdate > $final_origin - 24 & mdate <= $final_origin
+append using `hw'
+sort mdate
+forval s = 1/4 {
+	replace median`s' = usdidr if mdate == $final_origin
+}
+local anch : di %tmMon_CCYY $final_origin
+twoway (rarea lower951 upper951 mdate, color("24 90 141%10") lwidth(none)) ///
+	(rarea lower801 upper801 mdate, color("24 90 141%22") lwidth(none)) ///
+	(line usdidr mdate, lcolor(black) lwidth(medthick)) ///
+	(line median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
+	(line median2 mdate, lcolor("164 87 23") lwidth(medthick) lpattern(dash)) ///
+	(line median3 mdate, lcolor("35 114 74") lwidth(medthick) lpattern(shortdash)) ///
+	(line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)), ///
+	xline($final_origin, lcolor(gs10) lpattern(dot)) ///
+	title("USD/IDR: Baseline BMA dan skenario (efek skenario dari BVARX)", size(medium)) ///
+	subtitle("Band Baseline BMA 80% dan 95%; anchor `anch'", size(small)) ///
+	xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
+	legend(order(3 "Aktual" 4 "Baseline (BMA)" 5 "Adverse" 6 "Upside" 7 "Severe Adverse" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
+	graphregion(color(white)) name(hybrid_fan, replace)
+graph save "$gph\10_hybrid_fan.gph", replace
+graph export "$fig\10_hybrid_fan.png", replace width(1800)
+
+**## 10.5 Tabel PNG ringkasan skenario: asumsi makro (BVARX) + hasil USD/IDR (gabungan)
+use "$data\scenario_macro_paths.dta", clear
+keep if inlist(mdate, $final_origin + 3, $final_origin + 6)
+gen byte hh = mdate - $final_origin
+keep scenario hh dxy tb flows
+reshape wide dxy tb flows, i(scenario) j(hh)
+gen double dxy_pct6 = 100*(dxy6/$dxy0 - 1)
+tempfile mac
+save `mac'
+use "$data\hybrid_scenarios.dta", clear
+keep if inlist(mdate, $final_origin + 3, $final_origin + 6)
+gen byte hh = mdate - $final_origin
+keep scenario hh median lower80 upper80
+reshape wide median lower80 upper80, i(scenario) j(hh)
+merge 1:1 scenario using `mac', nogen
+bv_scenlab
+sort scenario
+gen double pct6 = 100*(median6/$anchor_spot - 1)
+keep scenario dxy_pct6 tb3 tb6 flows3 flows6 median3 median6 lower806 upper806 pct6
+order scenario dxy_pct6 tb3 tb6 flows3 flows6 median3 median6 lower806 upper806 pct6
+save "$data\hybrid_summary_table.dta", replace
+bv_out tab "T18_hybrid_scenario_assumptions"
+gen str24 c1 = ""
+gen str12 c2 = cond(dxy_pct6 >= 0, "+", "") + strtrim(string(dxy_pct6, "%5.1f")) + "%"
+gen str10 c3 = strtrim(string(tb3, "%5.1f"))
+gen str10 c4 = strtrim(string(tb6, "%5.1f"))
+gen str10 c5 = strtrim(string(flows3, "%6.1f"))
+gen str10 c6 = strtrim(string(flows6, "%6.1f"))
+gen str12 c7 = strtrim(string(median3, "%9.0fc"))
+gen str40 c8 = strtrim(string(median6, "%9.0fc")) + " [" + strtrim(string(lower806, "%9.0fc")) + "-" + strtrim(string(upper806, "%9.0fc")) + "]"
+gen str10 c9 = cond(pct6 >= 0, "+", "") + strtrim(string(pct6, "%5.1f")) + "%"
+forval i = 1/`=_N' {
+	local sl : label scen `=scenario[`i']'
+	qui replace c1 = "`sl'" in `i'
+}
+bv_pngtable c1 c2 c3 c4 c5 c6 c7 c8 c9, file("$fig\10_hybrid_scenario_table.png") ///
+	title("Ringkasan skenario USD/IDR: Baseline BMA, efek skenario dari BVARX (anchor Sep 2026 =`=strtrim(string($anchor_spot, "%9.0fc"))')") ///
+	heads("Skenario" "DXY Mar-27" "TB Des-26" "TB Mar-27" "Flows Des-26" "Flows Mar-27" "USD/IDR Des-26" "USD/IDR Mar-27 [80%]" "vs Sep-26") ///
+	widths(18 11 10 10 12 12 14 26 10) ///
+	note("Asumsi DXY/TB/flows dan efek skenario dari BVARX; Baseline dan rentang dari BMA. TB dalam USD bn, flows dalam Rp tn.")
+
+**## 10.6 Grafik asumsi makro per skenario (sama dengan input skenario BVARX)
+graph use "$gph\6_scenario_macro.gph"
+graph export "$fig\10_hybrid_macro.png", replace width(2600)
+
+**## 10.7 Backtest baseline (BMA): aktual vs baseline vs RW, RMSE, dan coverage interval
+use "$data\bma_test_backtest.dta", clear
+gen target = origin + h
+format target %tm
+gen double point   = rw*exp(yhat/100)
+gen double lower80 = rw*exp((yhat - invnormal(0.90)*ysd)/100)
+gen double upper80 = rw*exp((yhat + invnormal(0.90)*ysd)/100)
+gen double lower95 = rw*exp((yhat - invnormal(0.975)*ysd)/100)
+gen double upper95 = rw*exp((yhat + invnormal(0.975)*ysd)/100)
+gen byte c80 = actual >= lower80 & actual <= upper80
+gen byte c95 = actual >= lower95 & actual <= upper95
+preserve
+	collapse (mean) coverage80 = c80 coverage95 = c95, by(h)
+	rename h horizon
+	merge 1:1 horizon using "$data\bma_test_scores.dta", keepusing(relative_rmse cw_p dm_p direction) nogen
+	order horizon relative_rmse cw_p dm_p direction coverage80 coverage95
+	format relative_rmse cw_p dm_p direction coverage* %6.3f
+	list, noobs clean
+	bv_out tab "T17_hybrid_baseline_test"
+restore
+foreach hh of global horizons {
+	twoway (rarea lower80 upper80 target if h == `hh', color("24 90 141%15") lwidth(none)) ///
+		(line actual target if h == `hh', lcolor(black) lwidth(medthick)) ///
+		(line point target if h == `hh', lcolor("24 90 141") lwidth(medthick)) ///
+		(line rw target if h == `hh', lcolor("164 87 23") lpattern(dash)), ///
+		title("Test: horizon `hh' bulan (BMA)", size(medium)) ///
+		xtitle("Bulan target") ytitle("IDR per USD") ///
+		legend(order(2 "Aktual" 3 "Baseline (BMA)" 4 "Random walk" 1 "Band 80%") rows(1) size(small) position(6)) ///
+		xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) graphregion(color(white)) name(htest`hh', replace)
+	graph export "$fig\10_test_h`hh'.png", replace width(1800)
+}
+use "$data\bma_test_scores.dta", clear
+graph bar rmse_bma rmse_rw, over(horizon, relabel(1 "h=1" 2 "h=3" 3 "h=6")) ///
+	bar(1, color("24 90 141")) bar(2, color("164 87 23")) ///
+	legend(order(1 "Baseline (BMA)" 2 "Random walk") rows(1) position(6)) ///
+	ytitle("RMSE (IDR per USD)") blabel(bar, format(%9.0f) size(vsmall)) ///
+	title("Test 2024-2026: RMSE BMA vs random walk", size(medium)) ///
+	graphregion(color(white)) name(htest_rmse, replace)
+graph export "$fig\10_test_rmse.png", replace width(1800)
+
+**## 10.8 Perbandingan forecast: BMA vs BVARX vs random walk
+* RW + drift BI-Fed tetap ada di tabel komponen (T12/T13, T6_benchmarks), tidak ditampilkan di gambar.
+use "$data\forecast_compare.dta", clear
+keep if inlist(model, "bvar", "rw")
+keep model mdate median lower80 upper80
+tempfile fcm
+save `fcm'
+use "$data\bma_final.dta", clear
+keep mdate median lower80 upper80
+gen str16 model = "bma"
+append using `fcm'
+gen byte model_id = cond(model == "bma", 1, cond(model == "bvar", 2, 3))
+sort model_id mdate
+save "$data\hybrid_forecast_compare.dta", replace
+bv_out tab "T19_hybrid_forecast_compare"
+preserve
+	gen str32 cell = strtrim(string(median, "%9.0fc")) + "  [" + strtrim(string(lower80, "%9.0fc")) + " - " + strtrim(string(upper80, "%9.0fc")) + "]"
+	keep model_id mdate cell
+	reshape wide cell, i(mdate) j(model_id)
+	gen str12 bulan = string(mdate, "%tmMon_CCYY")
+	sort mdate
+	bv_pngtable bulan cell1 cell2 cell3, file("$fig\10_forecast_compare_table.png") ///
+		title("Forecast USD/IDR per model: median [rentang 80%] (Baseline, DXY datar)") ///
+		heads("Bulan" "BMA" "BVARX" "Random walk") widths(14 28 28 28) ///
+		note("BMA = Baseline. BVARX dipakai untuk efek skenario; forecast baseline-nya ditampilkan sebagai pembanding.")
+restore
+keep model_id mdate median
+reshape wide median, i(mdate) j(model_id)
+tempfile cw
+save `cw'
+use mdate usdidr using "$data\database.dta", clear
+keep if mdate > $final_origin - 24 & mdate <= $final_origin
+append using `cw'
+sort mdate
+forval m = 1/3 {
+	replace median`m' = usdidr if mdate == $final_origin
+}
+twoway (line usdidr mdate, lcolor(black) lwidth(medthick)) ///
+	(line median1 mdate, lcolor("24 90 141") lwidth(thick)) ///
+	(line median2 mdate, lcolor(purple) lpattern(dash)) ///
+	(line median3 mdate, lcolor("164 87 23") lpattern(longdash)), ///
+	xline($final_origin, lcolor(gs10) lpattern(dot)) ///
+	title("USD/IDR: forecast median per model (Baseline, DXY datar)", size(medium)) ///
+	xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
+	legend(order(1 "Aktual" 2 "BMA" 3 "BVARX" 4 "Random walk") rows(1) size(small) position(6)) ///
+	graphregion(color(white)) name(hybrid_cmp, replace)
+graph export "$fig\10_forecast_compare.png", replace width(1800)
 
 timer off 1
 timer list 1

@@ -1,20 +1,20 @@
 NARASI HASIL (draft otomatis, profile = standard)
 
-Spesifikasi terpilih dalam grid menggunakan awal sampel 2013, lag 2, dan lambda 0.10 (model changes). Pemilihannya menggunakan validation, sedangkan hasil berikut berasal dari test yang terpisah.
+Spesifikasi terpilih dalam grid menggunakan awal sampel 2014, lag 2, dan lambda 0.03 (model changes). Pemilihannya menggunakan validation, sedangkan hasil berikut berasal dari test yang terpisah.
 
-Pada horizon 1 bulan, relative RMSE adalah 1.124, dengan RMSE BVARX   289.4 dan RW   257.4 rupiah per USD. Random walk mempunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.96/0.96. Temuan ini belum menyatakan keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
+Pada horizon 1 bulan, relative RMSE adalah 1.051, dengan RMSE BVARX   270.6 dan RW   257.4 rupiah per USD. Random walk mempunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.81/0.92. Temuan ini belum menyatakan keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
 
-Pada horizon 3 bulan, relative RMSE adalah 1.105, dengan RMSE BVARX   601.6 dan RW   544.3 rupiah per USD. Random walk mempunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.81/0.96. Temuan ini belum menyatakan keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
+Pada horizon 3 bulan, relative RMSE adalah 1.042, dengan RMSE BVARX   567.2 dan RW   544.3 rupiah per USD. Random walk mempunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.77/0.81. Temuan ini belum menyatakan keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
 
-Pada horizon 6 bulan, relative RMSE adalah 0.981, dengan RMSE BVARX   671.0 dan RW   683.8 rupiah per USD. BVARX mempunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.96/1.00. Temuan ini belum menyatakan keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
+Pada horizon 6 bulan, relative RMSE adalah 0.982, dengan RMSE BVARX   671.3 dan RW   683.8 rupiah per USD. BVARX mempunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.69/0.96. Temuan ini belum menyatakan keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
 
-Bootstrap (blok 6) h=1: interval 95% relative RMSE 0.920-1.188 (meliputi 1: belum ada bukti kuat mengungguli RW).
-Bootstrap (blok 6) h=3: interval 95% relative RMSE 0.812-1.270 (meliputi 1: belum ada bukti kuat mengungguli RW).
-Bootstrap (blok 6) h=6: interval 95% relative RMSE 0.798-1.341 (meliputi 1: belum ada bukti kuat mengungguli RW).
+Bootstrap (blok 6) h=1: interval 95% relative RMSE 0.921-1.098 (meliputi 1: belum ada bukti kuat mengungguli RW).
+Bootstrap (blok 6) h=3: interval 95% relative RMSE 0.858-1.153 (meliputi 1: belum ada bukti kuat mengungguli RW).
+Bootstrap (blok 6) h=6: interval 95% relative RMSE 0.804-1.236 (meliputi 1: belum ada bukti kuat mengungguli RW).
 
-Skenario Baseline: median USD/IDR pada Mar 2027 adalah   18062, dengan rentang predictive 80%   16801-  19354.
-Skenario Adverse: median USD/IDR pada Mar 2027 adalah   18409, dengan rentang predictive 80%   17253-  19675.
-Skenario Upside: median USD/IDR pada Mar 2027 adalah   17667, dengan rentang predictive 80%   16543-  18885.
-Skenario Severe Adverse: median USD/IDR pada Mar 2027 adalah   19023, dengan rentang predictive 80%   17806-  20366.
+Skenario Baseline: median USD/IDR pada Mar 2027 adalah   18073, dengan rentang predictive 80%   17204-  19028.
+Skenario Adverse: median USD/IDR pada Mar 2027 adalah   18340, dengan rentang predictive 80%   17495-  19249.
+Skenario Upside: median USD/IDR pada Mar 2027 adalah   17803, dengan rentang predictive 80%   16977-  18706.
+Skenario Severe Adverse: median USD/IDR pada Mar 2027 adalah   18806, dengan rentang predictive 80%   17920-  19733.
 
 Bersyarat pada jalur DXY dan pembatasan observabel yang dijelaskan. Skenario adalah proyeksi bersama model, bukan estimasi efek kausal tunggal.

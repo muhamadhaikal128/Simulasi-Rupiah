@@ -18,7 +18,7 @@
 use "$data\database.dta", clear
 mata: D = bv_load("$model_mode")
 mata: bv_final_run($latest_complete, $final_origin, $H_final, $best_start, $best_p, $best_lambda, ///
-	$include_ust, $n_final, $shock_mat, strtoreal(tokens(st_global("cond_horizons"))), 0)
+	$best_ust, $n_final, $shock_mat, strtoreal(tokens(st_global("cond_horizons"))), 0)
 mata: st_global("fin_n", strofreal(FIN_info[1])); st_global("fin_from", strofreal(FIN_info[2]))
 di "Training akhir: " %tm $fin_from " sampai " %tm $latest_complete "; N = $fin_n"
 
@@ -98,7 +98,7 @@ foreach v in res_s res_tb res_flows res_res {
 }
 graph combine acf1 acf2 acf3 acf4, cols(2) graphregion(color(white)) name(resid_acf, replace)
 graph save "$gph\6_residual_acf.gph", replace
-graph export "$fig\6_residual_acf.png", replace width(1800)
+graph export "$fig_bvarx\6_residual_acf.png", replace width(1800)
 
 **## 6.4 Tabel baseline dan skenario
 mata: bv_tostata(FIN_tab, ("scenario", "mdate", "lower95", "lower80", "median", "upper80", "upper95", "ess", "ess_ratio"))
@@ -180,6 +180,30 @@ list, noobs clean
 save "$data\dxy_effect.dta", replace
 bv_out diag "D6_dxy_effect"
 
+* Efek kontemporer VIX (jika terpilih): +1% VIX pada bulan yang sama
+if $best_vix {
+	mata: bv_tostata(FIN_vix, ("eq", "effect", "sd"))
+	gen str24 variable = word("USD/IDR TB Flows Cadangan", eq)
+	gen str24 unit = cond(inlist(eq, 1, 4), "% perubahan", cond(eq == 2, "USD bn", "Rp tn"))
+	foreach v in effect sd {
+		replace `v' = `v'*10 if eq == 3
+	}
+	gen double lo90 = effect - invnormal(0.95)*sd
+	gen double hi90 = effect + invnormal(0.95)*sd
+	gen str32 conclusion = cond(lo90 > 0 | hi90 < 0, "berbeda dari nol (90%)", "tidak jelas (interval meliputi 0)")
+	drop eq
+	order variable unit effect sd lo90 hi90 conclusion
+	format effect sd lo90 hi90 %8.4f
+	list, noobs clean
+	save "$data\vix_effect.dta", replace
+	bv_out diag "D7_vix_effect"
+}
+else {
+	* VIX tidak terpilih: hapus hasil lama agar tidak menyesatkan
+	cap erase "$diag\D7_vix_effect.csv"
+	cap erase "$data\vix_effect.dta"
+}
+
 **## 6.5 Grafik: fan chart baseline + median skenario, dengan riwayat 24 bulan
 use "$data\scenario_spot.dta", clear
 keep scenario mdate lower95 lower80 median upper80 upper95
@@ -209,7 +233,7 @@ twoway (rarea lower951 upper951 mdate, color("24 90 141%10") lwidth(none)) ///
 	legend(order(3 "Aktual" 4 "Baseline" 5 "Adverse" 6 "Upside" 7 "Severe Adverse" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
 	graphregion(color(white)) name(scen_fan, replace)
 graph save "$gph\6_scenarios_fan.gph", replace
-graph export "$fig\6_scenarios_fan.png", replace width(1800)
+graph export "$fig_bvarx\6_scenarios_fan.png", replace width(1800)
 
 
 **## 6.6 Asumsi makro per skenario: DXY, trade balance, flows (grafik + tabel ringkas)
@@ -257,7 +281,7 @@ graph combine mac1 mac2 mac3, cols(3) graphregion(color(white)) xsize(13) ysize(
 		"Angka berlabel = nilai pada h = 3 dan 6 bulan (dikunci pada skenario non-baseline). TB dan flows Baseline = median model.", size(vsmall)) ///
 	name(scen_macro, replace)
 graph save "$gph\6_scenario_macro.gph", replace
-graph export "$fig\6_scenario_macro.png", replace width(2600)
+graph export "$fig_bvarx\6_scenario_macro.png", replace width(2600)
 
 **## 6.7 Tabel ringkas skenario (asumsi + hasil USD/IDR), juga sebagai PNG
 use "$data\scenario_macro_paths.dta", clear
@@ -334,7 +358,7 @@ twoway scatteri 0 0 100 100, msymbol(none) xscale(off range(0 120)) yscale(off r
 	note("TB dan flows pada Adverse/Upside/Severe Adverse = median Baseline +/- shock (00_master.do). Rentang = interval prediktif 80%.", size(vsmall)) ///
 	graphregion(color(white)) plotregion(style(none)) xsize(13) ysize(4) legend(off) name(scen_table, replace)
 graph save "$gph\6_scenario_table.gph", replace
-graph export "$fig\6_scenario_table.png", replace width(2600)
+graph export "$fig_bvarx\6_scenario_table.png", replace width(2600)
 
 **## 6.8 Tabel PNG: forecast bulanan USD/IDR per skenario (median [rentang 80%])
 use "$data\scenario_spot.dta", clear
@@ -344,7 +368,7 @@ keep scenario mdate cell
 reshape wide cell, i(mdate) j(scenario)
 gen str12 bulan = string(mdate, "%tmMon_CCYY")
 sort mdate
-bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\6_forecast_table.png") ///
+bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig_bvarx\6_forecast_table.png") ///
 	title("Forecast USD/IDR per skenario: median [rentang 80%] (model $model_mode, anchor Sep 2026 = `=strtrim(string($anchor_spot, "%9.0fc"))')") ///
 	heads("Bulan" "Baseline" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
 	note("Asumsi skenario: lihat 6_scenario_macro.png dan 6_scenario_table.png. Rentang = interval prediktif 80% (posterior predictive).")

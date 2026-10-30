@@ -83,6 +83,9 @@ gen double x_dxy   = 100*ln(dxy)
 gen double dy_s    = D.y_s
 gen double dy_res  = D.y_res
 gen double dx_dxy  = D.x_dxy
+* VIX: 100 log level dan perubahannya (eksogen opsional)
+gen double x_vix   = 100*ln(vix)
+gen double dx_vix  = D.x_vix
 gen double x_ust   = ust10y_pct
 gen double sin12   = sin(2*_pi*month/12)
 gen double cos12   = cos(2*_pi*month/12)
