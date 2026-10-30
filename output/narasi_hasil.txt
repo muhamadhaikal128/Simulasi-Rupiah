@@ -1,6 +1,6 @@
 NARASI HASIL (draft otomatis, profile = standard)
 
-Spesifikasi terpilih dalam grid menggunakan awal sampel 2014, lag 1, dan lambda 0.30. Pemilihannya menggunakan validation, sedangkan hasil berikut berasal dari test yang terpisah.
+Spesifikasi terpilih dalam grid menggunakan awal sampel 2014, lag 1, dan lambda 0.30, soc = 0. Pemilihannya menggunakan validation, sedangkan hasil berikut berasal dari test yang terpisah.
 
 Pada horizon 1 bulan, relative RMSE adalah 1.288, dengan RMSE BVARX   331.6 dan RW   257.4 rupiah per USD. Random walk mempunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.88/0.96. Temuan ini belum menyatakan keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
 
@@ -12,8 +12,9 @@ Bootstrap (blok 6) h=1: interval 95% relative RMSE 0.970-2.564 (meliputi 1: belu
 Bootstrap (blok 6) h=3: interval 95% relative RMSE 0.868-2.221 (meliputi 1: belum ada bukti kuat mengungguli RW).
 Bootstrap (blok 6) h=6: interval 95% relative RMSE 1.088-2.235 (tidak meliputi 1).
 
-Skenario baseline: median USD/IDR pada Mar 2027 adalah   16798, dengan rentang predictive 80%   15934-  17747.
-Skenario tekanan_input: median USD/IDR pada Mar 2027 adalah   17058, dengan rentang predictive 80%   16217-  17947.
-Skenario dukungan_input: median USD/IDR pada Mar 2027 adalah   16544, dengan rentang predictive 80%   15735-  17440.
+Skenario Baseline: median USD/IDR pada Mar 2027 adalah   18033, dengan rentang predictive 80%   16992-  19258.
+Skenario Adverse: median USD/IDR pada Mar 2027 adalah   18325, dengan rentang predictive 80%   17271-  19464.
+Skenario Upside: median USD/IDR pada Mar 2027 adalah   17754, dengan rentang predictive 80%   16718-  18872.
+Skenario Severe Adverse: median USD/IDR pada Mar 2027 adalah   18855, dengan rentang predictive 80%   17753-  20089.
 
 Bersyarat pada jalur DXY dan pembatasan observabel yang dijelaskan. Skenario adalah proyeksi bersama model, bukan estimasi efek kausal tunggal.

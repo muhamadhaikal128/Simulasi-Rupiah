@@ -6,8 +6,8 @@
 **## 7.1 Settings penelitian (reproduksibilitas)
 clear
 local items profile include_ust run_sensitivity seed n_val n_test n_final horizons release_lag ///
-	grid_start grid_p grid_lambda best_start best_p best_lambda H_final cond_horizons ///
-	dxy_shock tb_shock flows_shock
+	grid_start grid_p grid_lambda grid_soc best_start best_p best_lambda best_soc H_final final_mode cond_horizons ///
+	dxy_shock tb_shock flows_shock dxy_severe tb_severe flows_severe
 local n : word count `items'
 set obs `=`n'+6'
 gen str24 setting = ""
@@ -49,7 +49,7 @@ use "$data\test_scores_levels.dta", clear
 tempname fh
 file open `fh' using "$results\narasi_hasil.txt", write replace text
 file write `fh' "NARASI HASIL (draft otomatis, profile = $profile)" _n _n
-file write `fh' "Spesifikasi terpilih dalam grid menggunakan awal sampel $best_start, lag $best_p, dan lambda " %4.2f ($best_lambda) ". "
+file write `fh' "Spesifikasi terpilih dalam grid menggunakan awal sampel $best_start, lag $best_p, dan lambda " %4.2f ($best_lambda) ", soc = $best_soc. "
 file write `fh' "Pemilihannya menggunakan validation, sedangkan hasil berikut berasal dari test yang terpisah." _n _n
 forval i = 1/`=_N' {
 	file write `fh' "Pada horizon " %1.0f (horizon[`i']) " bulan, relative RMSE adalah " %5.3f (relative_rmse[`i'])

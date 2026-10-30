@@ -11,17 +11,23 @@ release_lag,2
 grid_start,2013 2014 2017
 grid_p,1 2
 grid_lambda,0.10 0.30
+grid_soc,0 1
 best_start,2014
 best_p,1
 best_lambda,.3
+best_soc,0
 H_final,6
+final_mode,changes
 cond_horizons,3 6
 dxy_shock,0.02
 tb_shock,1
 flows_shock,10
+dxy_severe,0.05
+tb_severe,2
+flows_severe,30
 validation_origins, 2021m1 -  2023m6
 test_origins, 2024m1 -  2026m2
 latest_complete, 2026m8
 final_origin, 2026m9
 stata_version,19.5 MP
-run_date,30 Oct 2026 13:45:51
+run_date,30 Oct 2026 14:32:19

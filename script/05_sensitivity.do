@@ -8,7 +8,7 @@ mata: hz = strtoreal(tokens(st_global("horizons")))
 use "$data\database.dta", clear
 mata: Dc = bv_load("changes")
 mata: R = bv_backtest(Dc, $best_start, $best_p, $best_lambda, $include_ust, ///
-	($test_from::$test_to), $n_test, 30000, $release_lag, hz)
+	($test_from::$test_to), $n_test, 30000, $release_lag, hz, $best_soc)
 mata: bv_tostata(R, bv_bt_names())
 format origin target %tm
 save "$data\test_changes.dta", replace

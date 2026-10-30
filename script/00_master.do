@@ -93,17 +93,30 @@ global release_lag 2
 global grid_start "2013 2014 2017"
 global grid_p "1 2"
 global grid_lambda "0.10 0.30"
+* Dummy sum-of-coefficients/initial-observation: 0 = prior manual, 1 = aktif (tightness 1)
+global grid_soc "0 1"
 * Origin validation (Jan 2021 - Jun 2023) dan awal test (Jan 2024)
 global val_from = ym(2021,1)
 global val_to   = ym(2023,6)
 global test_from = ym(2024,1)
 * Horizon final forecast dan skenario
 global H_final 6
+* Model untuk forecast akhir dan skenario (06): levels | changes.
+* changes dipilih karena test 2024-2026: relative RMSE 1.07/1.04/0.95 vs levels 1.29/1.37/1.66
+* (levels menarik kurs ke rata-rata sampel). Levels tetap dibandingkan di 08.
+global final_mode "changes"
 * Skenario ilustratif: titik pembatas (bulan ke-) dan besaran shock
 global cond_horizons "3 6"
+* Adverse / Upside: DXY +/-2% pada akhir horizon, TB -/+ USD1 bn, flows -/+ Rp10 tn
 global dxy_shock 0.02
 global tb_shock 1
 global flows_shock 10
+* Severe Adverse: DXY +5%, TB -USD2 bn, flows -Rp30 tn
+global dxy_severe 0.05
+global tb_severe 2
+global flows_severe 30
+* Matriks shock untuk Mata (baris: Adverse, Upside, Severe Adverse; kolom: DXY, TB, flows)
+global shock_mat "(($dxy_shock, -$tb_shock, -$flows_shock) \ (-$dxy_shock, $tb_shock, $flows_shock) \ ($dxy_severe, -$tb_severe, -$flows_severe))"
 
 set seed $seed
 
@@ -132,6 +145,8 @@ if $run_sensitivity do "$script\05_sensitivity.do"
 do "$script\06_final_scenarios.do"
 * 07: ekspor ringkasan Excel dan narasi hasil
 do "$script\07_export.do"
+* 08: perbandingan forecast akhir antar model (BVARX level/changes, RW, RW+drift, kombinasi)
+do "$script\08_forecast_compare.do"
 
 timer off 1
 timer list 1

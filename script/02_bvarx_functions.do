@@ -114,13 +114,16 @@ end
 
 **## 2.2 Estimasi posterior (Rmd: fit_bvar)
 mata:
+// soc = 0: prior manual saja. soc > 0: tambah dummy sum-of-coefficients dan
+// dummy-initial-observation (Doan-Litterman-Sims; Sims-Zha 1998) dengan tightness mu = delta = soc.
+// Dummy menahan tarikan ke rata-rata sampel (spurious mean reversion) pada model level.
 struct bvfit scalar bv_fit(struct bvdata scalar d, real scalar cutoff, real scalar start_year,
-	real scalar p, real scalar lambda, real scalar inc_ust)
+	real scalar p, real scalar lambda, real scalar inc_ust, real scalar soc)
 {
 	struct bvfit scalar f
 	real colvector idx, good, r, yj
-	real rowvector own, v0, arvar
-	real matrix Y0, X0, Ys, Xs, Z, C0, V0i, E, D, S0, Xr
+	real rowvector own, v0, arvar, ybar, xbar, zr
+	real matrix Y0, X0, Ys, Xs, Z, C0, V0i, E, D, S0, Xr, Yd, Zd, Ya, Za, Ea
 	real scalar K, i, j, l, T, nu0, last
 
 	K = cols(d.Y)
@@ -169,20 +172,38 @@ struct bvfit scalar bv_fit(struct bvdata scalar d, real scalar cutoff, real scal
 	v0 = v0, J(1, cols(f.xc), 0.5^2)
 	V0i = diag(1 :/ v0)
 
-	f.Vn = cholinv(V0i + cross(Z, Z))
+	// Dummy observations (hanya model level): ybar = rata-rata p observasi pra-sampel
+	Ya = Ys
+	Za = Z
+	if (soc > 0 & d.mode == "levels") {
+		ybar = mean((d.Y[|idx[1]-p, 1 \ idx[1]-1, K|] :- f.my) :/ f.sy)
+		xbar = mean(Xs[|1, 1 \ p, cols(Xs)|])
+		Yd = diag(ybar/soc)
+		Zd = J(K, 1, 0)
+		for (l = 1; l <= p; l++) Zd = Zd, diag(ybar/soc)
+		Zd = Zd, J(K, cols(Xs), 0)
+		zr = 1/soc
+		for (l = 1; l <= p; l++) zr = zr, ybar/soc
+		zr = zr, xbar/soc
+		Ya = Ys \ Yd \ (ybar/soc)
+		Za = Z \ Zd \ zr
+	}
+
+	f.Vn = cholinv(V0i + cross(Za, Za))
 	f.Vn = (f.Vn + f.Vn')/2
-	f.Cn = f.Vn*(V0i*C0 + cross(Z, Ys))
-	E = Ys - Z*f.Cn
+	f.Cn = f.Vn*(V0i*C0 + cross(Za, Ya))
+	E  = Ys - Z*f.Cn
+	Ea = Ya - Za*f.Cn
 	D = f.Cn - C0
 	nu0 = K + 2
 	S0 = diag(arvar*(nu0 - K - 1))
-	f.Sn = S0 + cross(E, E) + D'*V0i*D
+	f.Sn = S0 + cross(Ea, Ea) + D'*V0i*D
 	f.Sn = (f.Sn + f.Sn')/2
 	f.LV = cholesky(f.Vn)
 
 	last = idx[T]
 	f.hist = (d.Y[|last-p+1, 1 \ last, K|] :- f.my) :/ f.sy
-	f.nu = nu0 + T
+	f.nu = nu0 + rows(Ya)
 	f.K = K
 	f.p = p
 	f.n = T
@@ -406,7 +427,7 @@ mata:
 // Kolom keluaran: lihat bv_bt_names().
 real matrix bv_backtest(struct bvdata scalar d, real scalar start_year, real scalar p,
 	real scalar lambda, real scalar inc_ust, real colvector origins, real scalar ndraw,
-	real scalar seed_base, real scalar rlag, real rowvector hz)
+	real scalar seed_base, real scalar rlag, real rowvector hz, real scalar soc)
 {
 	struct bvfit scalar f
 	struct bvfut scalar u
@@ -419,7 +440,7 @@ real matrix bv_backtest(struct bvdata scalar d, real scalar start_year, real sca
 	hcol = hz'
 	for (o = 1; o <= rows(origins); o++) {
 		origin = origins[o]
-		f  = bv_fit(d, origin - rlag, start_year, p, lambda, inc_ust)
+		f  = bv_fit(d, origin - rlag, start_year, p, lambda, inc_ust, soc)
 		u  = bv_future(f, d, origin, max(hz), 0, 0)
 		pr = bv_predict(f, u, ndraw, J(0, 3, .), seed_base + origin)
 		steps = origin :+ hz :- f.cutoff
@@ -498,4 +519,94 @@ program define bv_score
 	drop _eb2 _er2 _lb2 _lr2
 	order horizon n rmse_bvar rmse_rw relative_rmse mae_bvar mae_rw log_rmse_bvar log_rmse_rw ///
 		direction_accuracy coverage80 coverage95 coverage80_rw coverage95_rw width80 min_ess_ratio
+end
+
+**## 2.6 Run akhir: baseline + skenario (dipakai 06 dan 08)
+* Skenario: 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse.
+mata:
+// Ringkasan jalur semua variabel (median, satuan alami) per step: (scen, mdate, s, tb, flows, res)
+// Model changes: cadangan dalam perubahan log (bukan level), jadi kolom res dikosongkan.
+real matrix bv_paths_median(struct bvpred scalar pr, real rowvector steps, real scalar sc, string scalar mode)
+{
+	real matrix M
+	real scalar i, j, K
+	K = 4
+	M = J(cols(steps), 6, .)
+	for (i = 1; i <= cols(steps); i++) {
+		M[i, 1] = sc
+		M[i, 2] = pr.times[steps[i]]
+		M[i, 3] = bv_quantile(pr.spot[., steps[i]], 0.5)
+		for (j = 2; j <= K; j++) M[i, j+2] = bv_median_path(pr, steps[i], j, K)
+	}
+	// flows kembali ke Rp tn, cadangan kembali ke USD bn
+	M[., 5] = M[., 5]*10
+	if (mode == "levels") M[., 6] = exp(M[., 6]/100)
+	else M[., 6] = J(rows(M), 1, .)
+	return(M)
+}
+
+// Kondisi skenario: TB dan flows = median baseline + (dtb, dfl) pada horizon chz
+real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scalar cutoff, real rowvector chz, real scalar dtb, real scalar dfl)
+{
+	real matrix X
+	real scalar i, s
+	X = J(0, 3, .)
+	for (i = 1; i <= cols(chz); i++) {
+		s = origin + chz[i] - cutoff
+		X = X \ (s, 2, bv_median_path(pb, s, 2, 4) + dtb)
+		X = X \ (s, 3, bv_median_path(pb, s, 3, 4) + dfl/10)
+	}
+	return(X)
+}
+
+// shock = matriks 3 x 3: baris = skenario Adverse, Upside, Severe Adverse; kolom = (pertumbuhan DXY, delta TB USD bn, delta flows Rp tn)
+void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar lambda, real scalar inc_ust, real scalar nd, real matrix shock, real rowvector chz, real scalar soc)
+{
+	external struct bvdata scalar D
+	external real matrix FIN_resid, FIN_tab, FIN_diag, FIN_cond, FIN_glob, FIN_vars, FIN_info
+	struct bvfit scalar f
+	struct bvfut scalar ub, u
+	struct bvpred scalar pb, ps
+	real matrix xc, xs, bridge
+	real rowvector fsteps
+	real colvector known
+	real scalar i, j, r, k
+
+	f = bv_fit(D, cutoff, sy0, p, lambda, inc_ust, soc)
+	FIN_resid = D.mdate[f.idx], f.resid
+	FIN_info = (f.n, D.mdate[f.idx[1]], f.cutoff, origin)
+
+	ub = bv_future(f, D, origin, H, 0, 0)
+	// Bridge makro yang sudah tersedia di snapshot (variabel 2..4)
+	known = selectindex(ub.times :<= origin)
+	for (i = 1; i <= rows(known); i++) {
+		r = bv_row(D, ub.times[known[i]])
+		for (j = 2; j <= 4; j++) {
+			if (!missing(D.Y[r, j])) ub.cond = ub.cond \ (known[i], j, D.Y[r, j])
+		}
+	}
+	bridge = ub.cond
+	pb = bv_predict(f, ub, nd, J(0, 3, .), 40001)
+	fsteps = selectindex(ub.times :> origin)'
+
+	// Tabel spot: (scen, mdate, lower95, lower80, median, upper80, upper95, ess, ess_ratio)
+	FIN_tab  = (J(cols(fsteps), 1, 1), bv_summary(pb, fsteps))
+	FIN_vars = bv_paths_median(pb, fsteps, 1, f.mode)
+	FIN_diag = (1, pb.ess, pb.ess/nd, pb.root_gt1, pb.root_gt105)
+	xc = J(rows(bridge), 1, 0), bridge
+	FIN_glob = ub.times, ub.dxy
+	for (k = 1; k <= rows(shock); k++) {
+		xs = bv_scen_cond(pb, origin, f.cutoff, chz, shock[k, 2], shock[k, 3])
+		u = bv_future(f, D, origin, H, shock[k, 1], 0)
+		u.cond = bridge
+		ps = bv_predict(f, u, nd, xs, 40001)
+		FIN_tab  = FIN_tab \ (J(cols(fsteps), 1, k+1), bv_summary(ps, fsteps))
+		FIN_vars = FIN_vars \ bv_paths_median(ps, fsteps, k+1, f.mode)
+		FIN_diag = FIN_diag \ (k+1, ps.ess, ps.ess/nd, ps.root_gt1, ps.root_gt105)
+		xc = xc \ (J(rows(xs), 1, k+1), xs)
+		FIN_glob = FIN_glob, u.dxy
+	}
+	// Kondisi: (scen, step, mdate, variabel, nilai model); scen 0 = bridge (dipakai semua skenario)
+	FIN_cond = xc[., (1..2)], ub.times[xc[., 2]], xc[., (3..4)]
+}
 end
