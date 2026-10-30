@@ -1,0 +1,1093 @@
+---
+title: "Manual R Markdown: Forecast dan Skenario USD/IDR dengan BVARX"
+author: "Panduan penelitian USD/IDR Indonesia"
+date: "30 Oktober 2026"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+    df_print: paged
+    self_contained: true
+params:
+  data_file: "Database_Rupiah_Bulanan.xlsx"
+  profile: "standard"
+  output_dir: "hasil_rupiah"
+  include_ust: false
+  run_sensitivity: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = TRUE,
+                     error = FALSE, fig.width = 8, fig.height = 4.5,
+                     dpi = 120)
+options(width = 95, scipen = 6)
+set.seed(30102026)
+need <- c("readxl", "knitr", "rmarkdown")
+absent <- need[!vapply(need, requireNamespace, logical(1), quietly = TRUE)]
+if (length(absent)) {
+  stop("Jalankan di Console dahulu: install.packages(c(",
+       paste(sprintf('"%s"', absent), collapse = ", "), "))")
+}
+stopifnot(params$profile %in% c("quick", "standard", "publication"))
+cfg <- switch(params$profile,
+  quick       = list(n_val = 60L,  n_test = 150L,  n_final = 600L),
+  standard    = list(n_val = 200L, n_test = 1000L, n_final = 6000L),
+  publication = list(n_val = 1000L,n_test = 5000L, n_final = 30000L))
+dir.create(params$output_dir, recursive = TRUE, showWarnings = FALSE)
+out <- function(name) file.path(params$output_dir, name)
+tbl <- function(x, digits = 3) knitr::kable(x, digits = digits, row.names = FALSE)
+```
+
+# Mulai dari sini: tindakan pertama
+
+**Buat satu folder proyek, lalu taruh file ini dan
+`Database_Rupiah_Bulanan.xlsx` di folder yang sama.** Buka RStudio,
+pilih File > New Project > Existing Directory, dan arahkan ke folder tersebut.
+Jangan mulai dengan menambah variabel atau mengganti model.
+
+Panduan ini memuat penjelasan, kode yang dapat dijalankan, literature review,
+aturan pemilihan spesifikasi, backtest, dan conditional forecast.
+Model mengikuti rancangan BVARX dan acuan utama Waggoner–Zha.
+Ini merupakan implementasi reduced form dengan prior konjugat yang dibuat
+transparan untuk penelitian ini; bukan replikasi persis kode atau prior paper.
+
+## Cara menjalankan
+
+1. Pasang R dan RStudio di komputer Anda.
+2. Jalankan perintah instalasi berikut **sekali saja di Console**, bukan di
+   dalam proses Knit.
+3. Pastikan nama Excel sesuai parameter `data_file` di bagian paling atas.
+4. Untuk percobaan pertama, ubah `profile: "standard"` menjadi
+   `profile: "quick"`. Klik **Knit > Knit to HTML**.
+5. Setelah percobaan berhasil, pakai `standard`. Untuk angka yang akan
+   dipublikasikan, pakai `publication`, ulangi dengan seed lain, dan periksa
+   effective sample size (ESS) serta kestabilan hasil.
+
+```{r instalasi-sekali, eval=FALSE}
+install.packages(c("readxl", "knitr", "rmarkdown"),
+                 repos = "https://cloud.r-project.org")
+# Opsional untuk pemeriksaan unit root:
+install.packages("urca", repos = "https://cloud.r-project.org")
+
+# Alternatif tombol Knit; jalankan dari folder proyek:
+rmarkdown::render("Manual_Model_Rupiah_BVARX.Rmd",
+                 params = list(profile = "standard"))
+```
+
+Semua angka hasil model dalam HTML dihitung ketika dokumen dijalankan.
+Parameter `profile` hanya mengubah jumlah simulasi, bukan sampel atau kandidat
+model. Hasil `quick` adalah pemeriksaan alur, bukan dasar kesimpulan penelitian.
+Simulasi standar dapat memerlukan beberapa menit, tergantung komputer.
+Profil yang dipakai pada eksekusi ini: **`r params$profile`**.
+
+# Pertanyaan penelitian dan batas jawaban model
+
+Judul kerja: **“Forecasting and Conditional Scenarios of the Indonesian Rupiah:
+A Bayesian VARX Approach.”**
+
+Ada dua pertanyaan yang perlu dijawab terpisah:
+
+- Apakah BVARX meningkatkan akurasi prediksi USD/IDR pada horizon 1, 3, dan
+  6 bulan dibandingkan random walk tanpa drift?
+- Bagaimana distribusi proyeksi USD/IDR berubah ketika jalur DXY, neraca
+  perdagangan, dan flows asing ditentukan dalam suatu skenario?
+
+Forecast di sini adalah distribusi nilai tukar masa depan.
+Kenaikan USD/IDR berarti depresiasi rupiah. Model ini tidak mengestimasi
+nilai tukar wajar BEER/FEER. Koefisien dan skenario reduced form juga tidak
+dengan sendirinya mengidentifikasi dampak kausal kebijakan atau SRBI.
+
+**Random walk bukan tanda bahwa model “tidak berguna”.** Jika benchmark itu
+menang, klaim akurasi BVARX harus dibatasi. Model multivariat masih dapat
+membantu menyusun skenario bersyarat, tetapi kualitas distribusi dan stabilitas
+hasilnya tetap perlu diuji. Kegunaan skenario tidak membuktikan keunggulan
+forecast titik.
+
+# Literature review yang langsung terhubung ke desain
+
+## Paper acuan utama
+
+Waggoner dan Zha (1999), *Conditional Forecasts in Dynamic Multivariate Models*,
+Review of Economics and Statistics, 81(4), 639–651.
+[DOI jurnal](https://doi.org/10.1162/003465399558508).
+[Working paper resmi, 1998](https://fraser.stlouisfed.org/files/docs/historical/frbatl/wp/frbatl_wp_1998-22.pdf).
+
+Paper ini menjadi acuan karena pertanyaan kita menyangkut distribusi
+forecast ketika nilai masa depan beberapa variabel dibatasi. Penekanannya
+adalah hard/soft conditions dan ketidakpastian parameter.
+Implementasi dalam manual menggunakan **hard conditions pada observabel**,
+prior matrix-normal inverse-Wishart, dan simulasi berbobot. Soft conditions
+berupa rentang belum diimplementasikan. Karena itu, adopsi kerangka conditional
+forecast harus dibedakan dari replikasi empiris penuh paper tersebut.
+
+## Matriks literatur
+
+| Referensi | Pokok yang diambil | Keputusan penelitian kita | Batas penerapan |
+|:--|:--|:--|:--|
+| Waggoner & Zha (1999) | Distribusi conditional forecast dan parameter uncertainty | Simulasikan jalur dan interval ketika trade balance/flows dibatasi | Skenario observabel tidak otomatis merupakan shock struktural |
+| Meese & Rogoff (1983) | Evaluasi out of sample kurs dapat menghasilkan random walk yang sulit dikalahkan | Benchmark spot terakhir tanpa drift wajib dilaporkan | Hasil mereka tidak menetapkan bahwa semua model selalu gagal di Indonesia |
+| Litterman (1986) | Penggunaan prior untuk regularisasi VAR forecasting | Shrink lag coefficients agar model kecil lebih teratur | Prior konjugat di sini bukan semua detail Minnesota prior asli |
+| Rossi (2013) | Predictability bergantung pada prediktor, horizon, sampel, dan evaluasi | Pemilihan periode/lag/prior memakai validation, bukan hasil test | Tidak ada janji bahwa satu spesifikasi unggul di semua periode |
+
+## Draft narasi literature review
+
+Prediksi nilai tukar perlu dinilai berdasarkan informasi yang tersedia ketika
+forecast dibuat dan kinerja di luar sampel. Meese dan Rogoff (1983)
+menunjukkan bahwa sejumlah model struktural dan time series pada mata uang
+yang mereka teliti sulit mengungguli random walk, bahkan ketika nilai masa
+depan sebagian explanatory variables tersedia dalam eksperimen mereka.
+Temuan tersebut mendasari penggunaan random walk tanpa drift sebagai
+benchmark, bukan keputusan untuk mengabaikan hubungan makroekonomi.
+
+Penggunaan beberapa variabel domestik dalam sistem dinamis memungkinkan
+informasi historis nilai tukar, perdagangan, flows, dan cadangan valas
+dipertimbangkan bersama. Namun, penambahan lag meningkatkan jumlah parameter.
+Pendekatan Bayesian yang dikembangkan dalam literatur forecasting VAR,
+termasuk Litterman (1986), memotivasi regularisasi agar estimasi tidak terlalu
+mengikuti variasi sampel kecil. Dalam penelitian ini, kekuatan shrinkage
+dipilih pada validation set dengan struktur prior yang dinyatakan secara eksplisit.
+
+Rossi (2013) menekankan bahwa kesimpulan predictability berubah menurut
+prediktor, horizon, sampel, serta prosedur evaluasi. Karena itu, periode
+sejak 2014 diperlakukan sebagai kandidat utama yang perlu diuji, bukan
+periode optimal yang telah terbukti. Kontribusi penelitian ini adalah
+penerapan dan evaluasi sistem USD/IDR yang menggabungkan flows saham,
+SBN, dan SRBI serta komponen foreign currency reserves secara konsisten.
+Kebaruan terhadap seluruh literatur Indonesia masih perlu diperiksa
+melalui pencarian studi lokal; jangan menulis “studi pertama” tanpa bukti.
+
+Narasi ini sudah dapat menjadi awal subbab literature review. Untuk naskah
+akhir, tambahkan studi Indonesia yang benar-benar dibaca. Isi matriks
+tambahan dengan sampel, definisi cadangan, basis flows, metode, dan apakah
+evaluasinya betul-betul out of sample. Hindari mencocokkan spesifikasi hanya
+karena paper lain memiliki R-squared yang tinggi.
+
+# Model dan alasan pemilihan variabel
+
+## Sistem inti
+
+Definisikan:
+
+\[
+ y_t=\begin{bmatrix}
+ 100\log(S_t)\\ TB_t\\ F_t/10\\100\log(R_t)
+ \end{bmatrix},\qquad
+ y_t=c+\sum_{\ell=1}^{p} A_\ell y_{t-\ell}
+       +B x_t+u_t,\quad u_t\sim N(0,\Sigma).
+\]
+
+`S` adalah USD/IDR; `TB` dalam USD miliar; `F` adalah gabungan flows
+dalam Rp triliun; `R` adalah foreign currency reserves dalam USD miliar.
+Pembagian flows dengan 10 hanya mengubah skala: satu unit model adalah
+Rp10 triliun.
+
+`x_t` berisi `100 log(DXY)` serta sinus/kosinus tahunan untuk pola musiman.
+UST10Y dapat ditambahkan lewat `include_ust: true`, tetapi perubahan
+spesifikasi itu harus diputuskan pada tahap validation.
+DXY dan, bila dipakai, UST diperlakukan eksogen relatif terhadap sistem
+Indonesia. Ini merupakan asumsi pemodelan yang perlu dinyatakan, bukan
+hasil uji kausalitas.
+
+| Variabel | Peran | Alasan dan perhatian interpretasi |
+|:--|:--|:--|
+| USD/IDR | Endogen dan target | Target pasar nominal; file memakai Bloomberg IDR REGN, bukan JISDOR |
+| Trade balance | Endogen | Informasi arus perdagangan; bukan seluruh current account |
+| Gabungan flows | Endogen | Proksi pasar saham+SBN+SRBI; sebagian komponen berbasis perubahan kepemilikan |
+| Foreign currency reserves | Endogen | Komponen IRFCL I.A.1 saja, termasuk securities serta currency/deposits; bukan total cadev dan bukan intervensi |
+| DXY | Eksogen | Kondisi dolar global; baseline future path harus ditentukan tanpa memakai realisasi masa depan |
+| UST10Y | Kontrol opsional | Tambahan kondisi global; tidak wajib masuk baseline yang ringkas |
+
+BI–Fed differential, VIX, dan rating/outlook tetap ada dalam database.
+Semuanya tidak dimasukkan sekaligus ke baseline. Rating/outlook memiliki
+sedikit kejadian dan `rating_down` selalu nol pada sampel ini. Kolom
+konstan tidak dapat mengidentifikasi koefisien downgrade. Yield Indonesia
+tidak diperlukan untuk spesifikasi awal yang disepakati.
+
+## Prior dan arti “Bayesian”
+
+Setelah standardisasi menggunakan **data training saja**, tulis
+`Y = Z C + U`. Prior yang dipakai adalah:
+
+\[
+ \Sigma\sim IW(S_0,\nu_0),\qquad
+ C\mid\Sigma\sim MN(C_0,V_0,\Sigma).
+\]
+
+Mean prior first own lag adalah 1 untuk log USD/IDR dan log cadangan,
+serta 0 untuk trade balance dan flows. Koefisien lag lain bermean 0.
+Varians prior lag mengecil menurut kuadrat lag. Semakin kecil `lambda`,
+semakin kuat shrinkage. Varians innovation awal dikalibrasi dari AR(1)
+pada training sample. Intercept mempunyai prior lebih longgar.
+
+Ini adalah **conjugate Minnesota-style shrinkage**, bukan hierarchical
+hyperparameter estimation. Kode memakai independent posterior draws;
+tidak ada rantai MCMC, burn-in, atau R-hat yang perlu ditafsirkan.
+
+Posterior yang digunakan:
+
+\[
+ V_n=(V_0^{-1}+Z'Z)^{-1},\quad
+ C_n=V_n(V_0^{-1}C_0+Z'Y),\quad \nu_n=\nu_0+T.
+\]
+
+`S_n` dihitung menggunakan residual posterior dan jarak terhadap prior
+untuk menghindari pengurangan dua matriks besar yang hampir sama.
+
+Baseline level model mempertahankan persistensi dan kemungkinan hubungan
+jangka panjang, tanpa mengklaim telah mengestimasi cointegrating vector.
+Diagnostik unit root tetap berguna, tetapi bukan aturan otomatis untuk
+mendiferensiasi semua variabel. Spesifikasi changes juga dijalankan
+sebagai sensitivity check. Tidak ada uji bounds ARDL dalam rancangan ini.
+
+## Dari forecast biasa ke conditional forecast
+
+Untuk suatu draw parameter, seluruh jalur masa depan ditulis:
+
+\[
+ Y_f=\mu_f+Gz,\quad z\sim N(0,I).
+\]
+
+Hard conditions memilih komponen jalur dengan `R Y_f = r`. Draw Gaussian
+diperbarui agar memenuhi kondisi tersebut. Ketika parameter tidak tetap,
+density kondisi digunakan sebagai importance weight. ESS dilaporkan untuk
+memeriksa apakah hasil hanya ditentukan oleh sedikit draw. Bobot tersebut
+bukan probabilitas bahwa suatu skenario ekonomi akan terjadi.
+
+Interval 80% dan 95% adalah **posterior predictive intervals bersyarat pada
+jalur eksogen dan model**, bukan confidence interval koefisien.
+Ketidakpastian DXY di luar jalur yang diasumsikan tidak tercakup.
+Bobot yang sangat terkonsentrasi berarti skenario memerlukan lebih banyak
+simulasi atau model perlu ditinjau; jangan menyembunyikannya dengan
+menghapus draw yang tidak disukai.
+
+# Impor dan audit database
+
+```{r impor-database}
+if (!file.exists(params$data_file)) {
+  stop("File Excel tidak ditemukan. Taruh Excel di folder Rmd, atau ubah params$data_file.")
+}
+raw <- as.data.frame(readxl::read_excel(
+  params$data_file, sheet = "database_monthly",
+  col_types = "numeric", na = c("", "NA")))
+source_notes <- as.data.frame(readxl::read_excel(
+  params$data_file, sheet = "sources", col_types = "text"))
+flow_components <- as.data.frame(readxl::read_excel(
+  params$data_file, sheet = "flow_components"))
+rating_events <- as.data.frame(readxl::read_excel(
+  params$data_file, sheet = "rating_events"))
+required <- c("year","month","mdate","usdidr","trade_bal_usdbn",
+              "net_flows_idrtn","fx_reserves_usdbn","dxy",
+              "ust10y_pct","core_complete")
+stopifnot(all(required %in% names(raw)))
+raw <- raw[order(raw$mdate), ]
+stopifnot(!anyDuplicated(raw$mdate), all(diff(raw$mdate) == 1),
+          all(raw$month %in% 1:12),
+          all(raw$mdate == 12*(raw$year-1960)+raw$month-1))
+raw$date <- as.Date(sprintf("%04d-%02d-01", raw$year, raw$month))
+ym <- function(m) sprintf("%04d-%02d", 1960 + m %/% 12, m %% 12 + 1)
+md <- function(y, m) 12L*(y-1960L)+m-1L
+core <- c("usdidr","trade_bal_usdbn","net_flows_idrtn","fx_reserves_usdbn","dxy")
+raw$complete_check <- as.integer(complete.cases(raw[, core]))
+stopifnot(identical(as.integer(raw$core_complete), raw$complete_check),
+          all(raw$usdidr > 0), all(raw$dxy > 0),
+          all(raw$fx_reserves_usdbn > 0))
+audit <- data.frame(variable = names(raw),
+                    missing = vapply(raw, function(x) sum(is.na(x)), integer(1)))
+tbl(audit[audit$missing > 0, ])
+latest_complete <- max(raw$mdate[raw$complete_check == 1])
+cat("Bulan lengkap terakhir:", ym(latest_complete), "\n")
+tbl(head(raw[, c("date", core)], 4))
+```
+
+Database memuat Januari 2013–September 2026. Sampel inti lengkap sejak
+2014 adalah Januari 2014–Agustus 2026, sebanyak 152 bulan sebelum
+penyesuaian estimasi. September 2026 tidak memiliki ekspor/impor.
+Kode sengaja tidak mengisi bulan tersebut dengan nol atau interpolasi.
+
+Flows sebelum September 2023 adalah saham+SBN; sesudahnya menambahkan
+SRBI. Nol SRBI sebelum peluncuran adalah structural zero. Perubahan
+cakupan sejak 2023 dan perubahan basis SBN 2026 perlu dicatat dalam
+keterbatasan. Stok cadangan tidak boleh dibaca sebagai transaksi intervensi
+karena perubahan valuasi dan transaksi lain juga dapat memengaruhinya.
+
+```{r audit-flow-dan-deskriptif}
+flow_sum <- rowSums(flow_components[,c("flow_saham_idrtn",
+                                      "flow_sbn_idrtn","flow_srbi_idrtn")])
+stopifnot(nrow(flow_components)==nrow(raw),
+          all(flow_components$year==raw$year),
+          all(flow_components$month==raw$month),
+          max(abs(flow_sum-raw$net_flows_idrtn)) < 1e-8)
+desc <- do.call(rbind, lapply(core, function(v) {
+  x <- raw[[v]]
+  data.frame(variable=v, n=sum(!is.na(x)), mean=mean(x,na.rm=TRUE),
+             sd=sd(x,na.rm=TRUE), min=min(x,na.rm=TRUE), max=max(x,na.rm=TRUE))
+}))
+tbl(desc)
+op <- par(mfrow=c(2,2), mar=c(3,4,2,1))
+plot(raw$date, raw$usdidr, type="l", xlab="", ylab="IDR/USD", main="USD/IDR")
+plot(raw$date, raw$trade_bal_usdbn, type="l", xlab="", ylab="USD bn",main="Trade balance")
+plot(raw$date, raw$net_flows_idrtn, type="h",xlab="",ylab="IDR tn",main="Combined flows")
+plot(raw$date, raw$fx_reserves_usdbn,type="l",xlab="",ylab="USD bn",main="Foreign currency reserves")
+par(op)
+```
+
+```{r unit-root-opsional}
+if (requireNamespace("urca", quietly=TRUE)) {
+  x <- log(raw$usdidr[raw$year >= 2014 & raw$complete_check == 1])
+  # Trend untuk level; pemilihan lag sampai 6 menggunakan BIC.
+  print(summary(urca::ur.df(x, type="trend", lags=6, selectlags="BIC")))
+  print(summary(urca::ur.df(diff(x), type="drift", lags=6, selectlags="BIC")))
+} else {
+  cat("Pemeriksaan ADF dilewati: urca belum dipasang; alur utama tetap berjalan.")
+}
+```
+
+Untuk ADF, hipotesis nol adalah unit root. Bandingkan statistik tau dengan
+critical values dari output, bukan dengan aturan “koefisien harus signifikan”.
+Ulangi pada log cadangan, log DXY, trade balance, dan flows jika diperlukan.
+Sampel kecil dan structural break membatasi kekuatan uji.
+Pemeriksaan ini tidak membuktikan cointegration atau hubungan kausal.
+
+# Rancangan eksperimen sebelum melihat hasil
+
+## Periode observasi
+
+**2014 adalah starting candidate yang masuk akal, belum terbukti optimal.**
+Tahun 2013 dipertahankan sebagai pembanding yang mencakup episode taper
+tantrum dan sebagai data awal lag. Kandidat 2017 memberi pembanding
+riwayat lebih pendek, tetapi membuang informasi dan mengurangi ukuran
+training sample. Pergantian definisi BI rate 2016 baru menjadi alasan
+pengukuran yang langsung relevan jika kontrol BI–Fed dimasukkan. Pemilihan harus
+dinilai pada forecast dates yang sama.
+
+Grid dibatasi pada start year 2013/2014/2017, lag 1/2, dan shrinkage
+0.10/0.30. Grid kecil menahan data mining dan beban komputasi.
+Jika dua skor validation berbeda kurang dari 1%, aturan tie memilih
+2014, kemudian lag yang lebih pendek dan shrinkage lebih kuat.
+Aturan ini ditetapkan sebelum membuka test.
+
+## Validation, test, dan informasi saat forecast
+
+| Tahap | Forecast origin | Pemakaian |
+|:--|:--|:--|
+| Validation | Januari 2021–Juni 2023 | Memilih start year, lag, lambda |
+| Target validation terakhir | Desember 2023 pada h=6 | Seluruh outcome tuning selesai sebelum test |
+| Test | Januari 2024 sampai origin terakhir dengan seluruh h tersedia | Evaluasi terkunci; tidak memilih ulang spesifikasi |
+| Final forecast | Bulan lengkap terbaru dalam file pasar | Update seluruh informasi yang ada, setelah evaluasi |
+
+Forecast origin didefinisikan sebagai **akhir bulan kalender r**.
+Untuk backtest, sistem lengkap konservatif dianggap tersedia hanya sampai
+`r-2`; USD/IDR dan DXY pasar tersedia sampai `r`.
+Model diperkirakan sampai `r-2`, lalu menjembatani dua bulan menuju `r`
+dengan kondisi nilai tukar yang sudah teramati. Nilai makro `r-1` dan `r`
+tidak dipakai. Future DXY setelah `r` diasumsikan tetap pada nilai `r`;
+future UST juga tetap jika digunakan.
+
+Lag dua bulan adalah **asumsi information set konservatif**, bukan klaim
+bahwa setiap sumber selalu terbit tepat dua bulan kemudian.
+Database memakai latest vintage, sehingga backtest ini tetap
+**pseudo-real-time**, bukan full real-time. Revisi historis masih dapat
+membuat hasil terlalu baik. Untuk klaim real-time, bangun arsip
+release date dan vintage sumber.
+
+# Mesin BVARX: kode dasar yang dapat diaudit
+
+Bagian ini mendefinisikan fungsi. Jalankan berurutan; jangan melewati
+chunk karena chunk berikutnya memakai fungsi yang dibuat di sini.
+Mayoritas operasi menggunakan base R, sehingga tidak bergantung pada
+API paket BVAR yang dapat berubah.
+
+```{r fungsi-transformasi}
+make_data <- function(raw, mode="levels") {
+  stopifnot(mode %in% c("levels","changes"))
+  d <- raw
+  d$s_level <- 100*log(d$usdidr)
+  d$res_level <- 100*log(d$fx_reserves_usdbn)
+  d$y_s <- d$s_level
+  d$y_tb <- d$trade_bal_usdbn
+  d$y_flows <- d$net_flows_idrtn/10
+  d$y_res <- d$res_level
+  d$x_dxy <- 100*log(d$dxy)
+  if (mode=="changes") {
+    d$y_s <- c(NA,diff(d$s_level))
+    d$y_res <- c(NA,diff(d$res_level))
+    d$x_dxy <- c(NA,diff(100*log(d$dxy)))
+  }
+  d$x_ust <- d$ust10y_pct
+  d$sin12 <- sin(2*pi*d$month/12)
+  d$cos12 <- cos(2*pi*d$month/12)
+  attr(d,"mode") <- mode
+  d
+}
+y_names <- c("y_s","y_tb","y_flows","y_res")
+```
+
+```{r fungsi-estimasi}
+fit_bvar <- function(d, cutoff, start_year=2014L, p=2L, lambda=.1,
+                     include_ust=FALSE) {
+  mode <- attr(d,"mode")
+  x_names <- c("x_dxy", if(include_ust) "x_ust", "sin12","cos12")
+  K <- length(y_names)
+  indices <- which(d$mdate >= md(start_year,1) & d$mdate <= cutoff)
+  indices <- indices[indices > p]
+  good <- vapply(indices, function(i) {
+    all(is.finite(as.matrix(d[c(i, i-seq_len(p)),y_names]))) &&
+      all(is.finite(as.numeric(d[i,x_names])))
+  }, logical(1))
+  indices <- indices[good]
+  stopifnot(length(indices)>=36L, tail(d$mdate[indices],1)==cutoff,
+            all(diff(d$mdate[indices])==1L))
+  Y0 <- as.matrix(d[indices,y_names])
+  my <- colMeans(Y0); sy <- apply(Y0,2,sd)
+  X0 <- as.matrix(d[indices,x_names])
+  mx <- colMeans(X0); sx <- apply(X0,2,sd)
+  stopifnot(all(sy>0),all(sx>0))
+  scale_y <- function(a) sweep(sweep(as.matrix(a),2,my,"-"),2,sy,"/")
+  Ys <- scale_y(Y0)
+  Xs <- sweep(sweep(X0,2,mx,"-"),2,sx,"/")
+  lagged <- lapply(seq_len(p), function(l) scale_y(d[indices-l,y_names]))
+  Z <- cbind(intercept=1, do.call(cbind,lagged), Xs)
+  M <- ncol(Z)
+  # Varians innovation AR(1), training saja.
+  arvar <- vapply(seq_len(K),function(j) {
+    r <- residuals(lm(Ys[-1,j] ~ Ys[-nrow(Ys),j]))
+    max(mean(r^2),1e-4)
+  }, numeric(1))
+  C0 <- matrix(0,M,K)
+  own_mean <- if(mode=="levels") c(1,0,0,1) else rep(0,K)
+  C0[2:(K+1),] <- diag(own_mean,K)
+  v0 <- c(100, unlist(lapply(seq_len(p),function(l)
+    lambda^2/(l^2*arvar))), rep(.5^2,length(x_names)))
+  V0i <- diag(1/v0,M)
+  Vn <- solve(V0i + crossprod(Z))
+  Cn <- Vn %*% (V0i %*% C0 + crossprod(Z,Ys))
+  E <- Ys-Z%*%Cn
+  D <- Cn-C0
+  nu0 <- K+2
+  S0 <- diag(arvar*(nu0-K-1),K)
+  Sn <- S0 + crossprod(E) + crossprod(D,V0i%*%D)
+  Sn <- (Sn+t(Sn))/2
+  last <- which(d$mdate==cutoff)
+  hist <- scale_y(d[seq.int(last-p+1,last),y_names])
+  list(Cn=Cn,Vn=Vn,Sn=Sn,nu=nu0+nrow(Ys),K=K,p=p,M=M,
+       my=my,sy=sy,mx=mx,sx=sx,hist=hist,x_names=x_names,
+       cutoff=cutoff,start_year=start_year,lambda=lambda,mode=mode,
+       last_spot=d$usdidr[last],indices=indices,
+       residuals=E*rep(sy,each=nrow(E)),n=nrow(Ys))
+}
+draw_parameters <- function(fit) {
+  W <- rWishart(1, df=fit$nu, Sigma=solve(fit$Sn))[,,1]
+  Sigma <- solve(W)
+  Sigma <- (Sigma+t(Sigma))/2
+  C <- fit$Cn + t(chol(fit$Vn)) %*%
+    matrix(rnorm(fit$M*fit$K),fit$M,fit$K) %*% chol(Sigma)
+  list(C=C,Sigma=Sigma)
+}
+```
+
+```{r fungsi-jalur-dan-kondisi}
+make_future <- function(fit,d,origin,h,dxy_growth=0,ust_change=0) {
+  stopifnot(origin>=fit$cutoff,h>=1)
+  times <- seq.int(fit$cutoff+1L,origin+h)
+  ix0 <- match(origin,d$mdate)
+  stopifnot(!is.na(ix0),is.finite(d$dxy[ix0]))
+  frac <- pmax(0,times-origin)/h
+  dxy <- d$dxy[ix0]*(1+dxy_growth)^frac
+  ust <- d$ust10y_pct[ix0]+ust_change*frac
+  known <- times<=origin
+  if(any(known)) {
+    ix <- match(times[known],d$mdate)
+    dxy[known] <- d$dxy[ix]
+    ust[known] <- d$ust10y_pct[ix]
+  }
+  logdxy <- 100*log(dxy)
+  if(fit$mode=="changes") {
+    x_dxy <- diff(c(100*log(d$dxy[match(fit$cutoff,d$mdate)]),logdxy))
+  } else x_dxy <- logdxy
+  month <- times%%12+1
+  X <- cbind(x_dxy=x_dxy,x_ust=ust,
+             sin12=sin(2*pi*month/12),cos12=cos(2*pi*month/12))
+  X <- X[,fit$x_names,drop=FALSE]
+  # Observasi USD/IDR yang sudah diketahui saat origin, sebagai bridge.
+  cond <- data.frame(step=integer(),variable=character(),value=numeric())
+  if(any(known)) {
+    ix <- match(times[known],d$mdate)
+    cond <- data.frame(step=which(known),variable="y_s",value=d$y_s[ix])
+  }
+  list(times=times,X=X,conditions=cond,origin=origin,h=h,
+       dxy=dxy,ust=ust)
+}
+forecast_system <- function(fit,theta,X) {
+  K <- fit$K; p <- fit$p; H <- nrow(X)
+  Xs <- sweep(sweep(X,2,fit$mx,"-"),2,fit$sx,"/")
+  hist <- fit$hist
+  mu <- matrix(NA_real_,H,K)
+  for(h in seq_len(H)) {
+    z <- c(1,unlist(lapply(seq_len(p),function(l) hist[nrow(hist)-l+1,])),
+           Xs[h,])
+    mu[h,] <- as.numeric(z %*% theta$C)
+    hist <- rbind(hist,mu[h,])
+  }
+  A <- lapply(seq_len(p),function(l)
+    t(theta$C[1+(l-1)*K+seq_len(K),,drop=FALSE]))
+  psi <- vector("list",H); psi[[1]] <- diag(K)
+  if(H>1) for(j in seq_len(H-1)) {
+    a <- matrix(0,K,K)
+    for(l in seq_len(min(p,j))) a <- a + A[[l]]%*%psi[[j-l+1]]
+    psi[[j+1]] <- a
+  }
+  G <- matrix(0,H*K,H*K)
+  L <- t(chol(theta$Sigma))
+  for(h in seq_len(H)) for(j in seq_len(h)) {
+    G[(h-1)*K+seq_len(K),(j-1)*K+seq_len(K)] <- psi[[h-j+1]]%*%L
+  }
+  # Companion eigenvalue: diagnostik, bukan filter draw.
+  comp <- if(p==1) A[[1]] else
+    rbind(do.call(cbind,A),cbind(diag(K*(p-1)),matrix(0,K*(p-1),K)))
+  list(mu=as.vector(t(mu)),G=G,
+       root=max(Mod(eigen(comp,only.values=TRUE)$values)))
+}
+predict_paths <- function(fit,future,n_draws=1000L,extra_conditions=NULL,seed=1L) {
+  set.seed(seed)
+  K <- fit$K; H <- length(future$times)
+  cond <- rbind(future$conditions,extra_conditions)
+  if(nrow(cond)) {
+    stopifnot(all(cond$step %in% seq_len(H)),
+              all(cond$variable %in% y_names),all(is.finite(cond$value)))
+    j <- match(cond$variable,y_names)
+    pos <- (cond$step-1)*K+j
+    stopifnot(!anyDuplicated(pos))
+    target <- (cond$value-fit$my[j])/fit$sy[j]
+  } else { pos <- integer(); target <- numeric() }
+  paths <- array(NA_real_,c(n_draws,H,K))
+  logw <- numeric(n_draws); roots <- numeric(n_draws)
+  for(b in seq_len(n_draws)) {
+    system <- forecast_system(fit,draw_parameters(fit),future$X)
+    z <- rnorm(H*K)
+    if(length(pos)) {
+      RG <- system$G[pos,,drop=FALSE]
+      Q <- tcrossprod(RG)
+      delta <- target-system$mu[pos]
+      logw[b] <- -.5*(length(pos)*log(2*pi)+
+                    as.numeric(determinant(Q,logarithm=TRUE)$modulus)+
+                    sum(delta*solve(Q,delta)))
+      z <- z + as.numeric(t(RG)%*%solve(Q,delta-as.numeric(RG%*%z)))
+    }
+    yf <- matrix(system$mu+as.numeric(system$G%*%z),H,K,byrow=TRUE)
+    yf <- sweep(sweep(yf,2,fit$sy,"*"),2,fit$my,"+")
+    paths[b,,] <- yf
+    roots[b] <- system$root
+  }
+  stopifnot(all(is.finite(paths)),all(is.finite(logw)))
+  w <- exp(logw-max(logw)); w <- w/sum(w)
+  ess <- 1/sum(w^2)
+  # Resampling menghasilkan campuran parameter conditional, bukan bobot rata.
+  keep <- sample.int(n_draws,n_draws,replace=TRUE,prob=w)
+  paths <- paths[keep,,,drop=FALSE]
+  if(nrow(cond)) for(i in seq_len(nrow(cond))) {
+    stopifnot(max(abs(paths[,cond$step[i],match(cond$variable[i],y_names)]-
+                        cond$value[i]))<1e-6)
+  }
+  S <- paths[,,1,drop=FALSE]
+  dim(S) <- c(n_draws,H)
+  if(fit$mode=="changes") {
+    S <- t(apply(S,1,cumsum)) + 100*log(fit$last_spot)
+  }
+  spot <- exp(S/100)
+  list(paths=paths,spot=spot,weights=w,ess=ess,n_draws=n_draws,
+       root_gt1=sum(w*(roots>1)),root_gt105=sum(w*(roots>1.05)),
+       times=future$times,conditions=cond)
+}
+summarise_spot <- function(pred,steps=seq_along(pred$times)) {
+  qs <- t(apply(pred$spot[,steps,drop=FALSE],2,quantile,
+                probs=c(.025,.10,.5,.90,.975)))
+  data.frame(mdate=pred$times[steps],month=ym(pred$times[steps]),
+             lower95=qs[,1],lower80=qs[,2],median=qs[,3],
+             upper80=qs[,4],upper95=qs[,5],ess=pred$ess,
+             ess_ratio=pred$ess/pred$n_draws)
+}
+```
+
+
+# Pilih spesifikasi dengan validation
+
+```{r fungsi-backtest}
+horizons <- c(1L,3L,6L)
+release_lag <- 2L
+run_backtest <- function(d,spec,origins,n_draws,seed_base=10000L) {
+  results <- vector("list",length(origins)*length(horizons))
+  z <- 1L
+  for(origin in origins) {
+    fit <- fit_bvar(d,cutoff=origin-release_lag,
+                    start_year=spec$start_year,p=spec$p,lambda=spec$lambda,
+                    include_ust=params$include_ust)
+    future <- make_future(fit,d,origin,max(horizons))
+    pred <- predict_paths(fit,future,n_draws=n_draws,
+                          seed=as.integer(seed_base+origin))
+    steps <- origin+horizons-fit$cutoff
+    q <- summarise_spot(pred,steps)
+    base <- d$usdidr[match(origin,d$mdate)]
+    actual <- d$usdidr[match(origin+horizons,d$mdate)]
+    stopifnot(length(actual)==length(horizons),all(is.finite(actual)))
+    # RW interval memakai volatility yang teramati sampai origin, drift nol.
+    history <- d$usdidr[d$mdate<=origin]
+    sigma_rw <- sd(diff(log(history)))
+    results[[z]] <- data.frame(origin=origin,target=origin+horizons,
+      horizon=horizons,actual=actual,rw=base,point=q$median,
+      lower80=q$lower80,upper80=q$upper80,
+      lower95=q$lower95,upper95=q$upper95,
+      rw_lower80=base*exp(qnorm(.10)*sqrt(horizons)*sigma_rw),
+      rw_upper80=base*exp(qnorm(.90)*sqrt(horizons)*sigma_rw),
+      rw_lower95=base*exp(qnorm(.025)*sqrt(horizons)*sigma_rw),
+      rw_upper95=base*exp(qnorm(.975)*sqrt(horizons)*sigma_rw),
+      ess_ratio=pred$ess/pred$n_draws)
+    z <- z+1L
+  }
+  do.call(rbind,results[seq_len(z-1L)])
+}
+score_by_h <- function(b) {
+  do.call(rbind,lapply(split(b,b$horizon),function(a) {
+    eb <- a$actual-a$point
+    er <- a$actual-a$rw
+    rms_b <- sqrt(mean(eb^2)); rms_r <- sqrt(mean(er^2))
+    data.frame(horizon=a$horizon[1],n=nrow(a),
+      rmse_bvar=rms_b,rmse_rw=rms_r,relative_rmse=rms_b/rms_r,
+      mae_bvar=mean(abs(eb)),mae_rw=mean(abs(er)),
+      log_rmse_bvar=100*sqrt(mean(log(a$actual/a$point)^2)),
+      log_rmse_rw=100*sqrt(mean(log(a$actual/a$rw)^2)),
+      direction_accuracy=mean(sign(a$point-a$rw)==sign(a$actual-a$rw)),
+      coverage80=mean(a$actual>=a$lower80 & a$actual<=a$upper80),
+      coverage95=mean(a$actual>=a$lower95 & a$actual<=a$upper95),
+      coverage80_rw=mean(a$actual>=a$rw_lower80 & a$actual<=a$rw_upper80),
+      coverage95_rw=mean(a$actual>=a$rw_lower95 & a$actual<=a$rw_upper95),
+      width80=mean(a$upper80-a$lower80),
+      min_ess_ratio=min(a$ess_ratio))
+  }))
+}
+d <- make_data(raw,"levels")
+val_origins <- seq.int(md(2021,1),md(2023,6))
+stopifnot(max(val_origins)+max(horizons)<=md(2023,12))
+grid <- expand.grid(start_year=c(2013L,2014L,2017L),
+                    p=c(1L,2L),lambda=c(.10,.30))
+validation <- grid
+validation$score <- NA_real_
+for(i in seq_len(nrow(grid))) {
+  b <- run_backtest(d,as.list(grid[i,]),val_origins,cfg$n_val)
+  validation$score[i] <- mean(score_by_h(b)$relative_rmse)
+}
+eligible <- which(validation$score <= min(validation$score)*1.01)
+preference <- ifelse(validation$start_year[eligible]==2014,0,
+                     ifelse(validation$start_year[eligible]==2013,1,2))
+pick <- eligible[order(preference,validation$p[eligible],
+                       validation$lambda[eligible])[1]]
+best <- as.list(validation[pick,c("start_year","p","lambda")])
+validation$chosen <- seq_len(nrow(validation))==pick
+tbl(validation[order(validation$score),],digits=4)
+write.csv(validation,out("validation_grid.csv"),row.names=FALSE)
+saveRDS(best,out("locked_specification.rds"))
+```
+
+Skor adalah rata-rata relative RMSE pada tiga horizon; angka di bawah 1
+berarti error lebih kecil daripada random walk pada validation.
+Forecast titik memakai median posterior dan aturan itu tidak diganti
+setelah melihat hasil.
+
+**Checkpoint:** baca tabel di atas, lalu kunci start year, lag, dan lambda.
+Jika 2014 tidak dipilih, laporkan hasil tersebut. Jangan mencari
+“pembenaran 2014” dengan memindahkan test period.
+Perbandingan ini memilih yang terbaik dalam grid yang dicoba, bukan
+membuktikan periode optimal secara universal.
+
+# Evaluasi pada test yang belum dipakai memilih model
+
+```{r test-terkunci}
+test_origins <- seq.int(md(2024,1),latest_complete-max(horizons))
+stopifnot(min(test_origins)>max(val_origins)+max(horizons))
+test <- run_backtest(d,best,test_origins,cfg$n_test,seed_base=20000L)
+test_score <- score_by_h(test)
+tbl(test_score,digits=3)
+write.csv(test,out("test_forecasts_levels.csv"),row.names=FALSE)
+write.csv(test_score,out("test_scores_levels.csv"),row.names=FALSE)
+cat("Origin test:",ym(min(test_origins)),"sampai",ym(max(test_origins)),
+    "; jumlah origin per horizon:",length(test_origins),"\n")
+```
+
+Cara membaca hasil:
+
+- `relative_rmse < 1`: secara deskriptif BVARX lebih akurat daripada RW
+  pada horizon tersebut. `> 1` berarti RW lebih akurat.
+- `coverage80` mendekati 0.80 dan `coverage95` mendekati 0.95 adalah
+  pemeriksaan awal kalibrasi. Interval yang sangat lebar tetap tidak menarik;
+  baca coverage bersama width.
+- Direction accuracy mengukur tanda perubahan dari spot di origin.
+  RW tanpa drift tidak memberikan arah, sehingga tidak dilabeli sebagai
+  prediksi “50% benar”.
+- Relative RMSE di bawah 1 saja belum membuktikan keunggulan signifikan.
+  Error horizon panjang saling overlap dan test sample kecil.
+
+## Ketidakpastian selisih akurasi
+
+```{r bootstrap-error}
+relative_rmse_ci <- function(a,R=1000L,block=6L,seed=77L) {
+  set.seed(seed)
+  n <- nrow(a)
+  boot <- replicate(R,{
+    starts <- sample.int(n,ceiling(n/block),replace=TRUE)
+    ix <- unlist(lapply(starts,function(s) ((s-1+0:(block-1))%%n)+1))[seq_len(n)]
+    sqrt(mean((a$actual[ix]-a$point[ix])^2) /
+           mean((a$actual[ix]-a$rw[ix])^2))
+  })
+  q <- quantile(boot,c(.025,.975))
+  data.frame(horizon=a$horizon[1],lower=q[1],upper=q[2])
+}
+accuracy_ci <- do.call(rbind,lapply(split(test,test$horizon),relative_rmse_ci))
+tbl(accuracy_ci)
+write.csv(accuracy_ci,out("test_relative_rmse_bootstrap.csv"),row.names=FALSE)
+```
+
+Ini adalah circular block bootstrap dari pasangan forecast errors,
+dengan blok enam origin bulanan untuk mempertahankan sebagian dependensi.
+Intervalnya bersifat pendekatan, conditional pada model terpilih;
+bukan koreksi menyeluruh atas semua model yang pernah dicoba.
+Jika interval meliputi 1 atau sensitif terhadap panjang blok 3/6/12,
+gunakan bahasa “belum ada bukti kuat mengungguli random walk”.
+Jangan mengklaim kepastian dari 26 atau puluhan forecast saja.
+
+```{r plot-error-test}
+a <- test[test$horizon==3,]
+plot(as.Date(paste0(ym(a$target),"-01")),a$actual,type="l",lwd=2,
+     xlab="Bulan target",ylab="IDR per USD",main="Test: horizon 3 bulan")
+lines(as.Date(paste0(ym(a$target),"-01")),a$point,col="#185A8D",lwd=2)
+lines(as.Date(paste0(ym(a$target),"-01")),a$rw,col="#A45717",lty=2)
+legend("topleft",c("Aktual","BVARX median","RW"),bty="n",
+       col=c("black","#185A8D","#A45717"),lty=c(1,1,2),lwd=2)
+```
+
+# Sensitivity: perubahan variabel persisten
+
+```{r sensitivity-changes}
+if(isTRUE(params$run_sensitivity)) {
+  d_changes <- make_data(raw,"changes")
+  test_changes <- run_backtest(d_changes,best,test_origins,cfg$n_test,
+                               seed_base=30000L)
+  sensitivity_score <- score_by_h(test_changes)
+  comparison <- merge(test_score[,c("horizon","relative_rmse")],
+                      sensitivity_score[,c("horizon","relative_rmse")],
+                      by="horizon",suffixes=c("_levels","_changes"))
+  tbl(comparison)
+  write.csv(test_changes,out("test_forecasts_changes.csv"),row.names=FALSE)
+  write.csv(comparison,out("sensitivity_levels_changes.csv"),row.names=FALSE)
+}
+```
+
+Changes model menggunakan perubahan log USD/IDR, cadangan, dan DXY,
+sementara trade balance serta flows tetap dalam satuan arus.
+Jalur spot dibentuk kembali dengan mengakumulasi perubahan log dari titik
+awal training. Ini merupakan sensitivity dengan hyperparameters yang
+sama, bukan upaya memilih model baru dari test. Jika ingin menjadikannya
+kandidat utama, ulangi desain validation sebelum membuka test baru.
+
+Pemeriksaan tambahan yang perlu dicatat dalam naskah:
+
+| Pemeriksaan | Cara melakukan | Apa yang dapat disimpulkan |
+|:--|:--|:--|
+| Start year | Tabel validation 2013/2014/2017, origin sama | Sensitivitas terhadap panjang riwayat |
+| UST | Ubah include_ust dan ulangi validation, sebelum memakai test baru | Nilai tambah kontrol global |
+| Jeda rilis | Ulangi dengan release_lag=1/2/3 | Ketergantungan pada asumsi information set |
+| Episode pandemi | Laporkan error per subperiode; jangan menghapusnya setelah hasil terlihat | Konsentrasi error pada episode tertentu |
+| SRBI | Bandingkan agregat dengan saham+SBN sebagai eksperimen terpisah | Sensitivitas perubahan cakupan, bukan efek kausal SRBI |
+| Revisi data | Pakai arsip vintage bila tersedia | Mendekatkan eksperimen ke real time |
+
+Untuk robustness saham+SBN, salin `raw`, ganti `net_flows_idrtn` dengan
+jumlah dua komponen pada sheet `flow_components`, lalu jalankan fungsi
+yang sama. Tetapkan eksperimen itu sebagai robustness sebelum menilai test.
+
+# Fit akhir dan diagnostik
+
+```{r fit-akhir-diagnostik}
+final_fit <- fit_bvar(d,cutoff=latest_complete,
+                     start_year=best$start_year,p=best$p,lambda=best$lambda,
+                     include_ust=params$include_ust)
+cat("Training:",ym(min(d$mdate[final_fit$indices])),"sampai",
+    ym(final_fit$cutoff),"; N =",final_fit$n,"\n")
+tbl(data.frame(variable=y_names,
+               residual_sd=apply(final_fit$residuals,2,sd)))
+tbl(cbind(variable=y_names,as.data.frame(cor(final_fit$residuals))))
+op <- par(mfrow=c(2,2),mar=c(3,4,2,1))
+for(j in seq_along(y_names)) acf(final_fit$residuals[,j],lag.max=12,
+                                main=paste("Residual",y_names[j]))
+par(op)
+saveRDS(final_fit,out("final_bvarx_fit.rds"))
+```
+
+Periksa residual autocorrelation, pola musiman yang tersisa, dan outlier.
+Prior bukan pengganti model specification. Jangan menambahkan banyak lag
+hanya karena ingin residual terlihat sempurna.
+Kode tidak membuang posterior draws dengan companion root di atas 1;
+level model dapat memberi probabilitas pada unit-root neighborhood.
+Proporsi root di atas 1 dan 1.05 dilaporkan pada forecast berikut.
+Explosive paths dan interval tidak masuk akal harus ditinjau sebelum
+dipakai untuk horizon panjang.
+
+# Baseline forecast dari snapshot yang tersedia
+
+Forecast akhir memakai semua data lengkap sampai Agustus 2026 dan
+menjembatani September dengan observasi yang sudah tersedia di snapshot
+30 Oktober 2026. Karena September trade balance kosong, model
+memperlakukannya sebagai tidak teramati. Observasi September untuk
+USD/IDR, flows, dan cadangan dapat dipakai sebagai kondisi.
+
+**Label waktu harus jujur:** anchor pasar pada file bulanan ini adalah
+September 2026. Proyeksi Oktober 2026 adalah nowcast berbasis snapshot
+30 Oktober, bukan forecast yang benar-benar dibuat pada 30 September.
+Untuk forecast live, perbarui pasar dan gunakan actual release dates.
+Bagian ini tidak mengubah label eksperimen test yang terpisah.
+
+```{r baseline-snapshot}
+final_origin <- max(d$mdate[is.finite(d$usdidr) & is.finite(d$dxy)])
+H <- 6L
+future_base <- make_future(final_fit,d,final_origin,H)
+# Tambahkan informasi makro yang memang sudah ada pada snapshot saat ini.
+# Hanya final snapshot; aturan ini TIDAK dipakai dalam backtest historis.
+bridge_steps <- which(future_base$times<=final_origin)
+for(s in bridge_steps) {
+  ix <- match(future_base$times[s],d$mdate)
+  for(v in setdiff(y_names,"y_s")) {
+    value <- d[[v]][ix]
+    if(is.finite(value)) future_base$conditions <- rbind(
+      future_base$conditions,data.frame(step=s,variable=v,value=value))
+  }
+}
+baseline <- predict_paths(final_fit,future_base,n_draws=cfg$n_final,seed=40001L)
+forecast_steps <- which(future_base$times>final_origin)
+baseline_table <- summarise_spot(baseline,forecast_steps)
+baseline_table$scenario <- "baseline"
+tbl(baseline_table)
+tbl(data.frame(scenario="baseline",ess=baseline$ess,
+               ess_ratio=baseline$ess/baseline$n_draws,
+               posterior_root_gt1=baseline$root_gt1,
+               posterior_root_gt105=baseline$root_gt105))
+```
+
+Baseline berarti DXY ke depan tetap pada nilai anchor, UST tetap jika
+digunakan, future rating event tidak dimodelkan, dan trade balance/flows
+masa depan bergerak menurut sistem. Asumsi DXY tetap adalah jalur
+bersyarat yang transparan, bukan ramalan DXY tersendiri.
+Jangan memasukkan realisasi DXY bulan target ke evaluasi forecast biasa.
+
+# Bangun skenario trade balance dan flows
+
+Contoh berikut memakai besaran **ilustratif**, bukan hasil estimasi shock
+struktural: di horizon 3 dan 6 bulan, trade balance masing-masing
+USD1 miliar lebih rendah/tinggi dan flows Rp10 triliun lebih rendah/tinggi
+daripada median baseline. DXY menuju +2% atau -2% pada akhir horizon 6.
+Bulan di antara titik pembatas dibiarkan ditentukan model.
+
+Nama “tekanan” dan “dukungan” mendeskripsikan input skenario.
+Model tidak dipaksa menghasilkan arah USD/IDR tertentu.
+Jika arah hasil berlawanan dengan intuisi, periksa data, kovariansi,
+prior, dan kualitas skenario sebelum membuat cerita ekonomi.
+
+```{r conditional-scenarios}
+condition_horizons <- c(3L,6L)
+make_scenario_conditions <- function(tb_delta,flows_delta_idrtn) {
+  rows <- lapply(condition_horizons,function(h) {
+    s <- final_origin+h-final_fit$cutoff
+    data.frame(step=s,variable=c("y_tb","y_flows"),
+      value=c(median(baseline$paths[,s,2])+tb_delta,
+              median(baseline$paths[,s,3])+flows_delta_idrtn/10))
+  })
+  do.call(rbind,rows)
+}
+future_pressure <- make_future(final_fit,d,final_origin,H,dxy_growth=.02)
+future_support  <- make_future(final_fit,d,final_origin,H,dxy_growth=-.02)
+# Samakan bridge information di ketiga skenario.
+future_pressure$conditions <- future_base$conditions
+future_support$conditions <- future_base$conditions
+pressure <- predict_paths(final_fit,future_pressure,n_draws=cfg$n_final,
+  extra_conditions=make_scenario_conditions(-1,-10),seed=40001L)
+support <- predict_paths(final_fit,future_support,n_draws=cfg$n_final,
+  extra_conditions=make_scenario_conditions(1,10),seed=40001L)
+pressure_table <- summarise_spot(pressure,forecast_steps)
+pressure_table$scenario <- "tekanan_input"
+support_table <- summarise_spot(support,forecast_steps)
+support_table$scenario <- "dukungan_input"
+scenario_table <- rbind(baseline_table,pressure_table,support_table)
+scenario_diag <- data.frame(
+  scenario=c("baseline","tekanan_input","dukungan_input"),
+  ess=c(baseline$ess,pressure$ess,support$ess),
+  ess_ratio=c(baseline$ess,pressure$ess,support$ess)/cfg$n_final,
+  root_gt105=c(baseline$root_gt105,pressure$root_gt105,support$root_gt105))
+tbl(scenario_table[,c("month","scenario","lower80","median","upper80","ess_ratio")])
+tbl(scenario_diag)
+if(any(scenario_diag$ess<100 | scenario_diag$ess_ratio<.01)) {
+  cat("\nPERHATIAN: setidaknya satu skenario mempunyai ESS rendah.",
+      "Gunakan hasil ini sebagai draft; tambah draw dan periksa ulang kestabilannya.\n")
+}
+write.csv(scenario_table,out("scenario_forecasts.csv"),row.names=FALSE)
+write.csv(scenario_diag,out("scenario_diagnostics.csv"),row.names=FALSE)
+saveRDS(list(baseline=baseline,pressure=pressure,support=support),
+        out("scenario_draws.rds"))
+```
+
+Hasil conditional forecast membutuhkan bukan hanya exact satisfaction
+dari constraint, melainkan juga jumlah draw efektif yang cukup.
+ESS rendah tidak diperbaiki hanya dengan menampilkan band yang halus.
+Bandingkan median serta quantile pada beberapa seed dan jumlah draw.
+Jika importance sampling tetap gagal untuk skenario ekstrem, gunakan
+sampler conditional parameter yang lebih efisien sebelum publikasi.
+
+## Plot proyeksi dan rentang
+
+```{r plot-skenario}
+dates <- as.Date(paste0(baseline_table$month,"-01"))
+ylim <- range(scenario_table[,c("lower95","upper95")])
+plot(dates,baseline_table$median,type="n",ylim=ylim,
+     xlab="Bulan target",ylab="IDR per USD",
+     main="USD/IDR: proyeksi bersyarat pada jalur skenario")
+polygon(c(dates,rev(dates)),
+        c(baseline_table$lower80,rev(baseline_table$upper80)),
+        col=adjustcolor("#185A8D",alpha.f=.15),border=NA)
+lines(dates,baseline_table$median,col="#185A8D",lwd=2)
+lines(dates,pressure_table$median,col="#A45717",lwd=2,lty=2)
+lines(dates,support_table$median,col="#23724A",lwd=2,lty=3)
+legend("topleft",c("Baseline median (band 80%)","Input tekanan","Input dukungan"),
+       col=c("#185A8D","#A45717","#23724A"),lty=c(1,2,3),lwd=2,bty="n")
+```
+
+Band yang diarsir hanya baseline agar gambar terbaca.
+Interval masing-masing skenario tersedia pada tabel dan CSV.
+Selisih median skenario tidak boleh ditulis sebagai “efek kausal”
+dari tambahan USD1 miliar surplus. Pembatasan observabel dapat
+menggabungkan banyak sumber shock yang berbeda.
+
+## Jika ingin membuat skenario rating
+
+Jangan langsung mengalikan koefisien dummy dengan kejadian downgrade.
+Tidak ada grade downgrade pada sampel ini; beberapa outlook deterioration
+juga baru muncul di 2026. Untuk perluasan yang dapat dipertanggungjawabkan:
+
+1. Tentukan dulu apakah event memengaruhi sistem pada bulan yang sama
+   atau bulan berikutnya, berdasarkan tanggal pengumuman.
+2. Masukkan event sebagai blok prediktor tambahan dengan prior kuat;
+   hindari `rating_down` yang konstan.
+3. Pilih prior/lag pada validation yang memiliki event memadai.
+4. Untuk baseline, set future event ke nol; untuk skenario, tetapkan
+   satu kejadian yang jelas. Forecast event yang belum diumumkan harus
+   dilabeli asumsi.
+5. Jika event terlalu sedikit, sajikan analisis historis/deskriptif
+   dan jangan mengklaim respons downgrade telah terestimasi.
+
+Baseline manual ini sengaja belum memaksakan koefisien rating yang
+tidak didukung variasi data. Kondisi flows dan trade balance sudah
+diimplementasikan penuh.
+
+# Cara menulis hasil penelitian
+
+## Struktur naskah
+
+| Bagian | Isi yang perlu ditulis |
+|:--|:--|
+| Pendahuluan | Dua RQ, pentingnya membedakan akurasi prediksi dan analisis skenario |
+| Literature review | Benchmark kurs, regularisasi Bayesian, conditional forecasts, studi Indonesia terverifikasi |
+| Data | Sumber, unit, end-of-month versus total bulanan, foreign-currency-only reserves, jeda rilis |
+| Metodologi | BVARX, transformasi, prior, grid, validation/test, information set, hard conditions |
+| Hasil | Validation, test versus RW, interval calibration, sensitivity, ESS, skenario |
+| Keterbatasan | Latest vintage, asumsi eksogen, sampel/event kecil, perubahan basis flows, scenario uncertainty |
+| Kesimpulan | Jawab dua RQ sesuai bukti; pisahkan hasil empiris dari rekomendasi kebijakan |
+
+## Template narasi hasil yang terisi otomatis
+
+```{r narasi-hasil, results='asis'}
+cat(sprintf("Spesifikasi terpilih dalam grid menggunakan awal sampel **%d**, lag **%d**, dan lambda **%.2f**. ",
+            best$start_year,best$p,best$lambda))
+cat("Pemilihannya menggunakan validation, sedangkan hasil berikut berasal dari test yang terpisah.\n\n")
+for(i in seq_len(nrow(test_score))) {
+  a <- test_score[i,]
+  cat(sprintf("Pada horizon **%d bulan**, relative RMSE adalah **%.3f**, dengan RMSE BVARX **%.1f** dan RW **%.1f** rupiah per USD. ",
+              a$horizon,a$relative_rmse,a$rmse_bvar,a$rmse_rw))
+  cat(if(a$relative_rmse<1)
+    "BVARX mempunyai error lebih kecil secara deskriptif pada horizon ini. "
+    else "Random walk mempunyai error lebih kecil secara deskriptif pada horizon ini. ")
+  cat("Temuan ini belum menyatakan keunggulan signifikan dan tetap bergantung pada information set serta vintage data.\n\n")
+}
+```
+
+Untuk bagian skenario, gunakan pola:
+“Bersyarat pada jalur DXY dan pembatasan observabel yang dijelaskan,
+median USD/IDR pada bulan ... adalah ..., dengan rentang predictive 80%
+...–.... Skenario tersebut merupakan proyeksi bersama model, bukan
+estimasi efek kausal tunggal.”
+
+Jangan menulis angka contoh sebagai hasil penelitian sebelum file
+dijalankan. Jangan mengganti kesimpulan menjadi “model efektif” hanya
+karena tanda koefisien sesuai harapan.
+
+# Ekspor, audit, dan daftar tugas akhir
+
+```{r ekspor-audit}
+write.csv(raw,out("database_imported.csv"),row.names=FALSE)
+write.csv(source_notes,out("sources.csv"),row.names=FALSE)
+write.csv(rating_events,out("rating_events.csv"),row.names=FALSE)
+write.csv(future_base$conditions,out("final_bridge_conditions.csv"),row.names=FALSE)
+scenario_inputs <- rbind(
+  transform(make_scenario_conditions(-1,-10),scenario="tekanan_input"),
+  transform(make_scenario_conditions(1,10),scenario="dukungan_input"))
+write.csv(scenario_inputs,out("scenario_hard_conditions.csv"),row.names=FALSE)
+write.csv(data.frame(month=ym(future_base$times),
+                     baseline_dxy=future_base$dxy,
+                     pressure_dxy=future_pressure$dxy,
+                     support_dxy=future_support$dxy),
+          out("scenario_global_paths.csv"),row.names=FALSE)
+writeLines(capture.output(sessionInfo()),out("sessionInfo.txt"))
+saveRDS(list(params=params,cfg=cfg,selected_spec=best,seed=30102026L,
+             release_lag=release_lag,horizons=horizons,
+             validation_origins=val_origins,test_origins=test_origins,
+             database_md5=unname(tools::md5sum(params$data_file)),
+             latest_complete=latest_complete,final_origin=final_origin),
+        out("research_settings.rds"))
+cat("Output tersimpan di:",normalizePath(params$output_dir),"\n")
+```
+
+Sebelum memakai hasil untuk presentasi atau naskah akhir, pastikan:
+
+- Sumber, unit, tanggal data, dan basis flows sesuai dengan sheet sumber.
+- Tidak ada macro month yang belum dirilis masuk ke training historis.
+- Outcome validation sudah selesai sebelum test dimulai.
+- Periode, lag, prior, dan daftar variabel tidak dipilih ulang memakai test.
+- Semua model dibandingkan pada origin dan horizon yang sama.
+- Hasil `quick` sudah diganti dengan simulasi memadai dan seed lain.
+- ESS, interval, residual, dan sensitivitas telah dibaca, termasuk hasil
+  yang tidak mendukung cerita awal.
+- Istilah forecast, nowcast, skenario, fair value, dan efek kausal digunakan
+  sesuai apa yang betul-betul diestimasi.
+
+# Referensi
+
+1. Waggoner, D. F., & Zha, T. (1999). Conditional Forecasts in Dynamic
+   Multivariate Models. *Review of Economics and Statistics*, 81(4), 639–651.
+   <https://doi.org/10.1162/003465399558508>.
+   Versi working paper resmi:
+   <https://fraser.stlouisfed.org/files/docs/historical/frbatl/wp/frbatl_wp_1998-22.pdf>.
+2. Meese, R. A., & Rogoff, K. (1983). Empirical exchange rate models of the
+   seventies: Do they fit out of sample? *Journal of International Economics*,
+   14(1–2), 3–24. <https://doi.org/10.1016/0022-1996(83)90017-X>.
+   [Salinan paper](https://www.ssc.wisc.edu/~bhansen/390/MeeseRogoff.pdf).
+3. Litterman, R. B. (1986). Forecasting with Bayesian Vector Autoregressions:
+   Five Years of Experience. *Journal of Business & Economic Statistics*,
+   4(1), 25–38. <https://doi.org/10.2307/1391384>.
+   [Laman Federal Reserve Bank of Minneapolis](https://www.minneapolisfed.org/research/working-papers/forecasting-with-bayesian-vector-autoregressions-five-years-of-experience).
+4. Rossi, B. (2013). Exchange Rate Predictability. *Journal of Economic
+   Literature*, 51(4), 1063–1119. <https://doi.org/10.1257/jel.51.4.1063>.
+5. Dokumentasi implementasi: [readxl](https://readxl.tidyverse.org/reference/read_excel.html),
+   [R Markdown](https://rmarkdown.rstudio.com/authoring_quick_tour.html),
+   [rWishart, R stats](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/rWishart.html).
+   Referensi paket diperiksa 30 Oktober 2026.
+
+# Lampiran: reproduksibilitas sesi
+
+```{r versi-sesi}
+sessionInfo()
+```
