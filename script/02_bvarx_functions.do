@@ -489,6 +489,7 @@ program define bv_score
 	collapse (count) n=origin (mean) _eb2 _er2 mae_bvar=_aeb mae_rw=_aer _lb2 _lr2 ///
 		direction_accuracy=_dir coverage80=_c80 coverage95=_c95 coverage80_rw=_c80rw ///
 		coverage95_rw=_c95rw width80=_w80 (min) min_ess_ratio=ess_ratio, by(horizon)
+	format n %9.0g
 	gen double rmse_bvar = sqrt(_eb2)
 	gen double rmse_rw = sqrt(_er2)
 	gen double relative_rmse = rmse_bvar/rmse_rw

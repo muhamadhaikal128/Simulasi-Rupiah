@@ -66,6 +66,8 @@ global profile "standard"
 global include_ust 0
 * 1 = jalankan sensitivity spesifikasi changes
 global run_sensitivity 1
+* 1 = jalankan uji ADF (01, bagian 1.6). Sementara 0: loop ADF macet di sesi MCP, sedang di-debug
+global run_adf 0
 * Seed utama (setara set.seed(30102026) di Rmd)
 global seed 30102026
 
@@ -118,6 +120,7 @@ log using "$results\run_log.log", replace text name(main)
 di "Mulai: `c(current_date)' `c(current_time)'  profile=$profile  include_ust=$include_ust"
 timer clear 1
 timer on 1
+
 
 * ---------------------------------------------------------------- 01_import_audit.do
 **# 1. IMPOR DAN AUDIT DATABASE
@@ -244,6 +247,8 @@ graph export "$fig\1_data_series.png", replace width(1800)
 **## 1.6 Unit root (ADF), sampel 2014+ dengan data inti lengkap
 * Lag ADF 0-6 dipilih dengan BIC pada sampel yang sama (setara ur.df selectlags="BIC").
 * H0 = unit root. Bukan aturan otomatis untuk mendiferensiasi; tidak membuktikan kointegrasi.
+* Dilewati jika global run_adf = 0 (lihat 00_master.do).
+if $run_adf {
 preserve
 	keep if year >= 2014 & complete_check == 1
 	tsset mdate, monthly
@@ -288,6 +293,7 @@ preserve
 	list, noobs clean
 	bv_out diag "D2_unit_root_adf"
 restore
+}
 
 * ---------------------------------------------------------------- 02_bvarx_functions.do
 **# 2. FUNGSI MATA BVARX
@@ -781,6 +787,7 @@ program define bv_score
 	collapse (count) n=origin (mean) _eb2 _er2 mae_bvar=_aeb mae_rw=_aer _lb2 _lr2 ///
 		direction_accuracy=_dir coverage80=_c80 coverage95=_c95 coverage80_rw=_c80rw ///
 		coverage95_rw=_c95rw width80=_w80 (min) min_ess_ratio=ess_ratio, by(horizon)
+	format n %9.0g
 	gen double rmse_bvar = sqrt(_eb2)
 	gen double rmse_rw = sqrt(_er2)
 	gen double relative_rmse = rmse_bvar/rmse_rw
@@ -929,8 +936,8 @@ foreach h of global horizons {
 		(line point target, lcolor("24 90 141") lwidth(medthick)) ///
 		(line rw target, lcolor("164 87 23") lpattern(dash)), ///
 		title("Test: horizon `h' bulan", size(medium)) xtitle("Bulan target") ytitle("IDR per USD") ///
-		legend(order(2 "Aktual" 3 "BVARX median" 4 "RW" 1 "Band 80% BVARX") rows(1) size(small)) ///
-		xlabel(, format(%tmMon_CCYY)) graphregion(color(white)) name(test_h`h', replace)
+		legend(order(2 "Aktual" 3 "BVARX median" 4 "RW" 1 "Band 80% BVARX") rows(1) size(small) position(6)) ///
+		xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) graphregion(color(white)) name(test_h`h', replace)
 	graph save "$gph\4_test_h`h'.gph", replace
 	graph export "$fig\4_test_h`h'.png", replace width(1800)
 }
@@ -938,7 +945,7 @@ foreach h of global horizons {
 use "$data\test_scores_levels.dta", clear
 graph bar rmse_bvar rmse_rw, over(horizon, relabel(1 "h=1" 2 "h=3" 3 "h=6")) ///
 	bar(1, color("24 90 141")) bar(2, color("164 87 23")) ///
-	legend(order(1 "BVARX" 2 "Random walk") rows(1)) ytitle("RMSE (IDR per USD)") ///
+	legend(order(1 "BVARX" 2 "Random walk") rows(1) position(6)) ytitle("RMSE (IDR per USD)") ///
 	title("Test: RMSE BVARX vs random walk", size(medium)) blabel(bar, format(%9.0f) size(vsmall)) ///
 	graphregion(color(white)) name(test_rmse, replace)
 graph save "$gph\4_test_rmse.gph", replace
@@ -1085,8 +1092,11 @@ mata: st_global("fin_n", strofreal(FIN_info[1])); st_global("fin_from", strofrea
 di "Training akhir: " %tm $fin_from " sampai " %tm $latest_complete "; N = $fin_n"
 
 * label skenario
-cap label drop scen
-label define scen 0 "bridge" 1 "baseline" 2 "tekanan_input" 3 "dukungan_input"
+cap program drop bv_scenlab
+program define bv_scenlab
+	label define scen 0 "bridge" 1 "baseline" 2 "tekanan_input" 3 "dukungan_input", replace
+	label values scenario scen
+end
 
 **## 6.3 Diagnostik residual (training akhir)
 mata: bv_tostata(FIN_resid, ("mdate", "res_s", "res_tb", "res_flows", "res_res"))
@@ -1161,7 +1171,7 @@ graph export "$fig\6_residual_acf.png", replace width(1800)
 
 **## 6.4 Tabel baseline dan skenario
 mata: bv_tostata(FIN_tab, ("scenario", "mdate", "lower95", "lower80", "median", "upper80", "upper95", "ess", "ess_ratio"))
-label values scenario scen
+bv_scenlab
 format mdate %tm
 gen double spot_anchor = .
 preserve
@@ -1183,14 +1193,14 @@ preserve
 restore
 
 mata: bv_tostata(FIN_vars, ("scenario", "mdate", "usdidr_median", "trade_bal_usdbn_median", "net_flows_idrtn_median", "fx_reserves_usdbn_median"))
-label values scenario scen
+bv_scenlab
 format mdate %tm
 format *_median %9.2f
 save "$data\scenario_paths_all.dta", replace
 bv_out tab "T9_scenario_paths_all"
 
 mata: bv_tostata(FIN_cond, ("scenario", "step", "mdate", "variable", "value_model"))
-label values scenario scen
+bv_scenlab
 format mdate %tm
 gen str8 var_name = word("y_s y_tb y_flows y_res", variable)
 * nilai dalam satuan alami
@@ -1206,7 +1216,7 @@ save "$data\scenario_global_paths.dta", replace
 bv_out tab "T11_global_paths"
 
 mata: bv_tostata(FIN_diag, ("scenario", "ess", "ess_ratio", "root_gt1", "root_gt105"))
-label values scenario scen
+bv_scenlab
 format ess %9.0f
 format ess_ratio root_* %6.3f
 gen byte low_ess = ess < 100 | ess_ratio < 0.01
@@ -1240,8 +1250,8 @@ twoway (rarea lower951 upper951 mdate, color("24 90 141%10") lwidth(none)) ///
 	xline($final_origin, lcolor(gs10) lpattern(dot)) ///
 	title("USD/IDR: proyeksi bersyarat pada jalur skenario", size(medium)) ///
 	subtitle("Band baseline 80% dan 95%; anchor `anch'", size(small)) ///
-	xtitle("") ytitle("IDR per USD") xlabel(, format(%tmMon_CCYY)) ///
-	legend(order(3 "Aktual" 4 "Baseline median" 5 "Input tekanan" 6 "Input dukungan" 2 "Band 80%" 1 "Band 95%") rows(2) size(small)) ///
+	xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
+	legend(order(3 "Aktual" 4 "Baseline median" 5 "Input tekanan" 6 "Input dukungan" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
 	graphregion(color(white)) name(scen_fan, replace)
 graph save "$gph\6_scenarios_fan.gph", replace
 graph export "$fig\6_scenarios_fan.png", replace width(1800)
@@ -1256,8 +1266,8 @@ foreach v in trade_bal_usdbn net_flows_idrtn fx_reserves_usdbn {
 	twoway (line `v'_median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
 		(line `v'_median2 mdate, lcolor("164 87 23") lpattern(dash)) ///
 		(line `v'_median3 mdate, lcolor("35 114 74") lpattern(shortdash)), ///
-		title("`t'", size(medium)) xtitle("") ytitle("") xlabel(, format(%tmMon_CCYY) labsize(small)) ///
-		legend(order(1 "Baseline" 2 "Tekanan" 3 "Dukungan") rows(1) size(small)) ///
+		title("`t'", size(medium)) xtitle("") ytitle("") xlabel(#4, format(%tmMon_CCYY) labsize(vsmall) angle(30)) ///
+		legend(order(1 "Baseline" 2 "Tekanan" 3 "Dukungan") rows(1) size(small) position(6)) ///
 		graphregion(color(white)) name(sv`k', replace) nodraw
 }
 graph combine sv1 sv2 sv3, cols(3) graphregion(color(white)) xsize(12) ysize(4) name(scen_vars, replace)
@@ -1344,7 +1354,6 @@ forval i = 1/`=_N' {
 file write `fh' _n "Bersyarat pada jalur DXY dan pembatasan observabel yang dijelaskan. Skenario adalah proyeksi bersama model, bukan estimasi efek kausal tunggal." _n
 file close `fh'
 type "$results\narasi_hasil.txt"
-
 
 timer off 1
 timer list 1

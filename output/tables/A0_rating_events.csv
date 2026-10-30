@@ -1,0 +1,13 @@
+event_date,mdate,agency,event_type,rating_before,rating_after,outlook_before,outlook_after,source_url
+02may2013,640,SP,outlook_deterioration,BB+,BB+,Positive,Stable,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+21may2015,664,SP,outlook_improvement,BB+,BB+,Stable,Positive,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+21dec2016,683,Fitch,outlook_improvement,BBB-,BBB-,Stable,Positive,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+08feb2017,685,Moodys,outlook_improvement,Baa3,Baa3,Stable,Positive,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+19may2017,688,SP,rating_upgrade,BB+,BBB-,Positive,Stable,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+20dec2017,695,Fitch,rating_upgrade,BBB-,BBB,Positive,Stable,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+13apr2018,699,Moodys,rating_upgrade,Baa3,Baa2,Positive,Stable,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+31may2019,712,SP,rating_upgrade,BBB-,BBB,Stable,Stable,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+17apr2020,723,SP,outlook_deterioration,BBB,BBB,Stable,Negative,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+27apr2022,747,SP,outlook_improvement,BBB,BBB,Negative,Stable,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+05feb2026,793,Moodys,outlook_deterioration,Baa2,Baa2,Stable,Negative,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf
+04mar2026,794,Fitch,outlook_deterioration,BBB,BBB,Stable,Negative,https://www.bi.go.id/en/iru/economic-market-data/Documents/Indonesia%20Sovereign%20Rating%20-%20July%202026.pdf

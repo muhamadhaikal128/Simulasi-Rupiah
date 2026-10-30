@@ -104,8 +104,11 @@ mata: st_global("fin_n", strofreal(FIN_info[1])); st_global("fin_from", strofrea
 di "Training akhir: " %tm $fin_from " sampai " %tm $latest_complete "; N = $fin_n"
 
 * label skenario
-cap label drop scen
-label define scen 0 "bridge" 1 "baseline" 2 "tekanan_input" 3 "dukungan_input"
+cap program drop bv_scenlab
+program define bv_scenlab
+	label define scen 0 "bridge" 1 "baseline" 2 "tekanan_input" 3 "dukungan_input", replace
+	label values scenario scen
+end
 
 **## 6.3 Diagnostik residual (training akhir)
 mata: bv_tostata(FIN_resid, ("mdate", "res_s", "res_tb", "res_flows", "res_res"))
@@ -180,7 +183,7 @@ graph export "$fig\6_residual_acf.png", replace width(1800)
 
 **## 6.4 Tabel baseline dan skenario
 mata: bv_tostata(FIN_tab, ("scenario", "mdate", "lower95", "lower80", "median", "upper80", "upper95", "ess", "ess_ratio"))
-label values scenario scen
+bv_scenlab
 format mdate %tm
 gen double spot_anchor = .
 preserve
@@ -202,14 +205,14 @@ preserve
 restore
 
 mata: bv_tostata(FIN_vars, ("scenario", "mdate", "usdidr_median", "trade_bal_usdbn_median", "net_flows_idrtn_median", "fx_reserves_usdbn_median"))
-label values scenario scen
+bv_scenlab
 format mdate %tm
 format *_median %9.2f
 save "$data\scenario_paths_all.dta", replace
 bv_out tab "T9_scenario_paths_all"
 
 mata: bv_tostata(FIN_cond, ("scenario", "step", "mdate", "variable", "value_model"))
-label values scenario scen
+bv_scenlab
 format mdate %tm
 gen str8 var_name = word("y_s y_tb y_flows y_res", variable)
 * nilai dalam satuan alami
@@ -225,7 +228,7 @@ save "$data\scenario_global_paths.dta", replace
 bv_out tab "T11_global_paths"
 
 mata: bv_tostata(FIN_diag, ("scenario", "ess", "ess_ratio", "root_gt1", "root_gt105"))
-label values scenario scen
+bv_scenlab
 format ess %9.0f
 format ess_ratio root_* %6.3f
 gen byte low_ess = ess < 100 | ess_ratio < 0.01
@@ -259,8 +262,8 @@ twoway (rarea lower951 upper951 mdate, color("24 90 141%10") lwidth(none)) ///
 	xline($final_origin, lcolor(gs10) lpattern(dot)) ///
 	title("USD/IDR: proyeksi bersyarat pada jalur skenario", size(medium)) ///
 	subtitle("Band baseline 80% dan 95%; anchor `anch'", size(small)) ///
-	xtitle("") ytitle("IDR per USD") xlabel(, format(%tmMon_CCYY)) ///
-	legend(order(3 "Aktual" 4 "Baseline median" 5 "Input tekanan" 6 "Input dukungan" 2 "Band 80%" 1 "Band 95%") rows(2) size(small)) ///
+	xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
+	legend(order(3 "Aktual" 4 "Baseline median" 5 "Input tekanan" 6 "Input dukungan" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
 	graphregion(color(white)) name(scen_fan, replace)
 graph save "$gph\6_scenarios_fan.gph", replace
 graph export "$fig\6_scenarios_fan.png", replace width(1800)
@@ -275,8 +278,8 @@ foreach v in trade_bal_usdbn net_flows_idrtn fx_reserves_usdbn {
 	twoway (line `v'_median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
 		(line `v'_median2 mdate, lcolor("164 87 23") lpattern(dash)) ///
 		(line `v'_median3 mdate, lcolor("35 114 74") lpattern(shortdash)), ///
-		title("`t'", size(medium)) xtitle("") ytitle("") xlabel(, format(%tmMon_CCYY) labsize(small)) ///
-		legend(order(1 "Baseline" 2 "Tekanan" 3 "Dukungan") rows(1) size(small)) ///
+		title("`t'", size(medium)) xtitle("") ytitle("") xlabel(#4, format(%tmMon_CCYY) labsize(vsmall) angle(30)) ///
+		legend(order(1 "Baseline" 2 "Tekanan" 3 "Dukungan") rows(1) size(small) position(6)) ///
 		graphregion(color(white)) name(sv`k', replace) nodraw
 }
 graph combine sv1 sv2 sv3, cols(3) graphregion(color(white)) xsize(12) ysize(4) name(scen_vars, replace)

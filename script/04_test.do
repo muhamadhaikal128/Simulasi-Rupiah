@@ -63,8 +63,8 @@ foreach h of global horizons {
 		(line point target, lcolor("24 90 141") lwidth(medthick)) ///
 		(line rw target, lcolor("164 87 23") lpattern(dash)), ///
 		title("Test: horizon `h' bulan", size(medium)) xtitle("Bulan target") ytitle("IDR per USD") ///
-		legend(order(2 "Aktual" 3 "BVARX median" 4 "RW" 1 "Band 80% BVARX") rows(1) size(small)) ///
-		xlabel(, format(%tmMon_CCYY)) graphregion(color(white)) name(test_h`h', replace)
+		legend(order(2 "Aktual" 3 "BVARX median" 4 "RW" 1 "Band 80% BVARX") rows(1) size(small) position(6)) ///
+		xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) graphregion(color(white)) name(test_h`h', replace)
 	graph save "$gph\4_test_h`h'.gph", replace
 	graph export "$fig\4_test_h`h'.png", replace width(1800)
 }
@@ -72,7 +72,7 @@ foreach h of global horizons {
 use "$data\test_scores_levels.dta", clear
 graph bar rmse_bvar rmse_rw, over(horizon, relabel(1 "h=1" 2 "h=3" 3 "h=6")) ///
 	bar(1, color("24 90 141")) bar(2, color("164 87 23")) ///
-	legend(order(1 "BVARX" 2 "Random walk") rows(1)) ytitle("RMSE (IDR per USD)") ///
+	legend(order(1 "BVARX" 2 "Random walk") rows(1) position(6)) ytitle("RMSE (IDR per USD)") ///
 	title("Test: RMSE BVARX vs random walk", size(medium)) blabel(bar, format(%9.0f) size(vsmall)) ///
 	graphregion(color(white)) name(test_rmse, replace)
 graph save "$gph\4_test_rmse.gph", replace

@@ -59,6 +59,8 @@ global profile "standard"
 global include_ust 0
 * 1 = jalankan sensitivity spesifikasi changes
 global run_sensitivity 1
+* 1 = jalankan uji ADF (01, bagian 1.6). Sementara 0: loop ADF macet di sesi MCP, sedang di-debug
+global run_adf 0
 * Seed utama (setara set.seed(30102026) di Rmd)
 global seed 30102026
 

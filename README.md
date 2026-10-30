@@ -21,6 +21,7 @@ Setting di `00_master.do`:
 | `profile` | `quick` (cek alur) / `standard` / `publication` (jumlah draw) | `standard` |
 | `include_ust` | 1 = UST10Y ikut eksogen (putuskan lewat validation) | 0 |
 | `run_sensitivity` | 1 = jalankan spesifikasi changes | 1 |
+| `run_adf` | 1 = jalankan uji ADF (D2). Sementara dimatikan: loop ADF macet di sesi Stata MCP, belum di-debug | 0 |
 | `grid_start`, `grid_p`, `grid_lambda` | Grid validation | 2013/2014/2017, 1/2, 0.10/0.30 |
 | `release_lag` | Jeda rilis makro konservatif (bulan) | 2 |
 | `dxy_shock`, `tb_shock`, `flows_shock` | Besaran skenario ilustratif | 2%, USD1 bn, Rp10 tn |

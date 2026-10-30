@@ -122,6 +122,8 @@ graph export "$fig\1_data_series.png", replace width(1800)
 **## 1.6 Unit root (ADF), sampel 2014+ dengan data inti lengkap
 * Lag ADF 0-6 dipilih dengan BIC pada sampel yang sama (setara ur.df selectlags="BIC").
 * H0 = unit root. Bukan aturan otomatis untuk mendiferensiasi; tidak membuktikan kointegrasi.
+* Dilewati jika global run_adf = 0 (lihat 00_master.do).
+if $run_adf {
 preserve
 	keep if year >= 2014 & complete_check == 1
 	tsset mdate, monthly
@@ -166,3 +168,4 @@ preserve
 	list, noobs clean
 	bv_out diag "D2_unit_root_adf"
 restore
+}

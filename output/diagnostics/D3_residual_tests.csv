@@ -1,0 +1,5 @@
+equation,N,sd,lb_q12,lb_p12,sk_skew_p,sk_kurt_p,sk_joint_p,lb_conclusion
+res_s,152,2.1241007,6.9708056,.85953683,.000031635907,1.3686502e-08,8.3996321e-09,tidak ada bukti autokorelasi
+res_tb,152,1.3280908,47.40089,3.9723836e-06,.52017802,.31719777,.48800808,autokorelasi tersisa (p<0.05)
+res_flows,152,2.5655956,10.752594,.55023199,.0058883289,.00025716258,.00020533901,tidak ada bukti autokorelasi
+res_res,152,2.1791584,8.2513962,.76518893,.61793971,.13594413,.28489503,tidak ada bukti autokorelasi
