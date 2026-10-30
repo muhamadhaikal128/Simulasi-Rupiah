@@ -223,7 +223,7 @@ foreach v in dxy tb flows {
 		local plots `plots' (line `v' mdate if scenario == `s', lcolor("`c'") lpattern(`pt') lwidth(medthick))
 		local plots `plots' (scatter `v' mdate if scenario == `s' & lab_pt, mcolor("`c'") msize(small) mlabel(l_`v') mlabcolor("`c'") mlabsize(vsmall) mlabposition(1))
 	}
-	twoway `plots', title("`t'", size(medium)) xtitle("") ytitle("") ///
+	twoway `plots', title("`t'", size(medium)) xtitle("") ytitle("") ylabel(, format(%6.1f) angle(0)) ///
 		xlabel(#6, format(%tmMon_CCYY) labsize(vsmall) angle(30)) ///
 		legend(off) ///
 		graphregion(color(white)) name(mac`k', replace) nodraw
