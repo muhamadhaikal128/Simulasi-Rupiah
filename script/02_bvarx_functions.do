@@ -286,10 +286,12 @@ end
 
 **## 2.3 Jalur masa depan dan conditional forecast (Rmd: make_future, forecast_system, predict_paths)
 mata:
-// Jalur eksogen dari cutoff+1 sampai origin+h. DXY menuju (1+g) pada akhir horizon, UST +du.
+// Jalur eksogen dari cutoff+1 sampai origin+h, UST +du.
+// g skalar: DXY menuju (1+g) pada akhir horizon (jalur geometrik).
+// g vektor h x 1: DXY bulan ke-k setelah origin = DXY origin x (1 + g[k]) (sheet scenario_inputs).
 // Bulan s/d origin memakai realisasi DXY/UST dan USD/IDR sebagai kondisi bridge.
 struct bvfut scalar bv_future(struct bvfit scalar f, struct bvdata scalar d, real scalar origin,
-	real scalar h, real scalar g, real scalar du)
+	real scalar h, real colvector g, real scalar du)
 {
 	struct bvfut scalar u
 	real colvector frac, known, logdxy, xd, mon, ix
@@ -304,7 +306,14 @@ struct bvfut scalar bv_future(struct bvfit scalar f, struct bvdata scalar d, rea
 	r0 = bv_row(d, origin)
 	if (missing(d.dxy[r0])) _error("DXY tidak tersedia pada origin")
 	frac  = ((u.times :- origin) :* (u.times :> origin)) / h
-	u.dxy = d.dxy[r0] :* (1 + g):^frac
+	if (rows(g) == 1) u.dxy = d.dxy[r0] :* (1 + g):^frac
+	else {
+		if (rows(g) != h | hasmissing(g)) _error("jalur DXY harus berisi h nilai tanpa missing")
+		u.dxy = J(H, 1, d.dxy[r0])
+		for (i = 1; i <= H; i++) {
+			if (u.times[i] > origin) u.dxy[i] = d.dxy[r0]*(1 + g[u.times[i] - origin])
+		}
+	}
 	u.ust = d.ust[r0] :+ du :* frac
 	// selisih suku bunga ke depan: tetap di nilai origin (bulan teramati memakai realisasi)
 	rate  = J(H, 1, d.rate[r0])
@@ -604,16 +613,17 @@ real matrix bv_paths_median(struct bvpred scalar pr, real rowvector steps, real 
 	return(M)
 }
 
-// Kondisi skenario: TB dan flows = median baseline + (dtb, dfl) pada horizon chz
-real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scalar cutoff, real rowvector chz, real scalar dtb, real scalar dfl)
+// Kondisi skenario dari sheet scenario_inputs. sc: baris (h, geser TB USD bn, geser flows Rp tn);
+// missing = bulan itu tidak dikunci. Nilai kondisi = median Baseline BVARX + geser (flows model = Rp10 tn).
+real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scalar cutoff, real matrix sc)
 {
 	real matrix X
 	real scalar i, s
 	X = J(0, 3, .)
-	for (i = 1; i <= cols(chz); i++) {
-		s = origin + chz[i] - cutoff
-		X = X \ (s, 2, bv_median_path(pb, s, 2, 4) + dtb)
-		X = X \ (s, 3, bv_median_path(pb, s, 3, 4) + dfl/10)
+	for (i = 1; i <= rows(sc); i++) {
+		s = origin + sc[i, 1] - cutoff
+		if (!missing(sc[i, 2])) X = X \ (s, 2, bv_median_path(pb, s, 2, 4) + sc[i, 2])
+		if (!missing(sc[i, 3])) X = X \ (s, 3, bv_median_path(pb, s, 3, 4) + sc[i, 3]/10)
 	}
 	return(X)
 }
@@ -637,15 +647,17 @@ real matrix bv_x_effect(struct bvfit scalar f, real scalar k)
 	return(R)
 }
 
-// shock = matriks 3 x 3: baris = skenario Adverse, Upside, Severe Adverse; kolom = (pertumbuhan DXY, delta TB USD bn, delta flows Rp tn)
-void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar lambda, real scalar inc_ust, real scalar nd, real matrix shock, real rowvector chz, real scalar soc)
+// SC = input skenario (sheet scenario_inputs), satu baris per skenario x bulan, terurut skenario lalu h:
+// kolom (kode skenario 1 Baseline / 2 Adverse / 3 Upside / 4 Severe Adverse, h, DXY kumulatif vs origin
+// dalam pecahan, geser TB USD bn, geser flows Rp tn). Tiap skenario punya h = 1..H lengkap.
+void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar lambda, real scalar inc_ust, real scalar nd, real matrix SC, real scalar soc)
 {
 	external struct bvdata scalar D
 	external real matrix FIN_resid, FIN_tab, FIN_diag, FIN_cond, FIN_glob, FIN_vars, FIN_info, FIN_dxy, FIN_vix
 	struct bvfit scalar f
 	struct bvfut scalar ub, u
 	struct bvpred scalar pb, ps
-	real matrix xc, xs, bridge
+	real matrix xc, xs, bridge, S
 	real rowvector fsteps
 	real colvector known
 	real scalar i, j, r, k
@@ -658,7 +670,9 @@ void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real sc
 	FIN_vix = J(0, 3, .)
 	if (any(f.xc :== 8)) FIN_vix = bv_x_effect(f, selectindex(f.xc :== 8))
 
-	ub = bv_future(f, D, origin, H, 0, 0)
+	S = select(SC, SC[., 1] :== 1)
+	if (rows(S) != H) _error("sheet skenario: Baseline harus berisi h = 1.." + strofreal(H))
+	ub = bv_future(f, D, origin, H, S[., 3], 0)
 	// Bridge makro yang sudah tersedia di snapshot (variabel 2..4)
 	known = selectindex(ub.times :<= origin)
 	for (i = 1; i <= rows(known); i++) {
@@ -677,15 +691,17 @@ void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real sc
 	FIN_diag = (1, pb.ess, pb.ess/nd, pb.root_gt1, pb.root_gt105)
 	xc = J(rows(bridge), 1, 0), bridge
 	FIN_glob = ub.times, ub.dxy
-	for (k = 1; k <= rows(shock); k++) {
-		xs = bv_scen_cond(pb, origin, f.cutoff, chz, shock[k, 2], shock[k, 3])
-		u = bv_future(f, D, origin, H, shock[k, 1], 0)
+	for (k = 2; k <= 4; k++) {
+		S = select(SC, SC[., 1] :== k)
+		if (rows(S) != H) _error("sheet skenario: skenario " + strofreal(k) + " harus berisi h = 1.." + strofreal(H))
+		xs = bv_scen_cond(pb, origin, f.cutoff, S[., (2, 4, 5)])
+		u = bv_future(f, D, origin, H, S[., 3], 0)
 		u.cond = bridge
 		ps = bv_predict(f, u, nd, xs, 40001)
-		FIN_tab  = FIN_tab \ (J(cols(fsteps), 1, k+1), bv_summary(ps, fsteps))
-		FIN_vars = FIN_vars \ bv_paths_median(ps, fsteps, k+1, f.mode)
-		FIN_diag = FIN_diag \ (k+1, ps.ess, ps.ess/nd, ps.root_gt1, ps.root_gt105)
-		xc = xc \ (J(rows(xs), 1, k+1), xs)
+		FIN_tab  = FIN_tab \ (J(cols(fsteps), 1, k), bv_summary(ps, fsteps))
+		FIN_vars = FIN_vars \ bv_paths_median(ps, fsteps, k, f.mode)
+		FIN_diag = FIN_diag \ (k, ps.ess, ps.ess/nd, ps.root_gt1, ps.root_gt105)
+		xc = xc \ (J(rows(xs), 1, k), xs)
 		FIN_glob = FIN_glob, u.dxy
 	}
 	// Kondisi: (scen, step, mdate, variabel, nilai model); scen 0 = bridge (dipakai semua skenario)

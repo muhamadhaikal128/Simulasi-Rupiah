@@ -59,7 +59,7 @@ preserve
 	gen str12 bulan = string(mdate, "%tmMon_CCYY")
 	sort mdate
 	bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\10_hybrid_table.png") ///
-		title("Forecast USD/IDR per skenario: median [rentang 80%], anchor Sep 2026 =`=strtrim(string($anchor_spot, "%9.0fc"))'") ///
+		title("Forecast USD/IDR per skenario: median [rentang 80%], anchor `: di %tmMon_CCYY $final_origin' = `=strtrim(string($anchor_spot, "%9.0fc"))'") ///
 		heads("Bulan" "Baseline (BMA)" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
 		note("Baseline = BMA. Skenario = Baseline BMA x (skenario / baseline) BVARX. Rentang = interval prediktif 80% BMA, digeser sesuai skenario.")
 restore
@@ -128,9 +128,12 @@ forval i = 1/`=_N' {
 	local sl : label scen `=scenario[`i']'
 	qui replace c1 = "`sl'" in `i'
 }
+local m0 : di %tmMon_YY $final_origin
+local m3 : di %tmMon_YY $final_origin + 3
+local m6 : di %tmMon_YY $final_origin + 6
 bv_pngtable c1 c2 c3 c4 c5 c6 c7 c8 c9, file("$fig\10_hybrid_scenario_table.png") ///
-	title("Ringkasan skenario USD/IDR: Baseline BMA, efek skenario dari BVARX (anchor Sep 2026 =`=strtrim(string($anchor_spot, "%9.0fc"))')") ///
-	heads("Skenario" "DXY Mar-27" "TB Des-26" "TB Mar-27" "Flows Des-26" "Flows Mar-27" "USD/IDR Des-26" "USD/IDR Mar-27 [80%]" "vs Sep-26") ///
+	title("Ringkasan skenario USD/IDR: Baseline BMA, efek skenario dari BVARX (anchor `: di %tmMon_CCYY $final_origin' = `=strtrim(string($anchor_spot, "%9.0fc"))')") ///
+	heads("Skenario" "DXY `m6'" "TB `m3'" "TB `m6'" "Flows `m3'" "Flows `m6'" "USD/IDR `m3'" "USD/IDR `m6' [80%]" "vs `m0'") ///
 	widths(18 11 10 10 12 12 14 26 10) ///
 	note("Asumsi DXY/TB/flows dan efek skenario dari BVARX; Baseline dan rentang dari BMA. TB dalam USD bn, flows dalam Rp tn.")
 

@@ -169,3 +169,18 @@ Hasil run v3, 30 Okt 2026 14:53 (spesifikasi: start 2013, lag 2, lambda 0,1; N =
   0,99 / 0,94 / 0,86, Clark-West p 0,23 / 0,07 / 0,02, coverage 80% 0,92 / 0,85 / 0,81.
 - README ditulis ulang: cara kerja model gabungan (BMA, BVARX, penggabungan), evaluasi, keterbatasan.
 - Label diperjelas: baseline ditulis "BMA" (bukan "gabungan"); gabungan hanya untuk skenario (Baseline BMA + efek BVARX).
+
+## v4.1 — 1 Nov 2026: asumsi skenario dari sheet Excel
+
+- Sheet baru `scenario_inputs` di `input/Database_Rupiah_Bulanan.xlsx`: satu baris per skenario × bulan
+  ke-h (1–6) dengan `dxy_pct` (DXY kumulatif vs anchor, %), `tb_shift_usdbn` dan `flows_shift_idrtn`
+  (geser terhadap median Baseline BVARX; kosong = bulan itu tidak dikunci). Isi default = asumsi v4,
+  sehingga hasil seharusnya sama dengan run v4.
+- `06_final_scenarios.do` membaca dan memvalidasi sheet (nama skenario, h lengkap, DXY terisi), menyimpan
+  input yang dipakai ke `T0_scenario_inputs`, lalu meneruskannya ke Mata.
+- `02_bvarx_functions.do`: `bv_future` menerima jalur DXY per bulan (selain skalar akhir horizon);
+  `bv_scen_cond` dan `bv_final_run` memakai input per bulan.
+- Global `cond_horizons`, `dxy_shock`, `tb_shock`, `flows_shock`, `dxy_severe`, `tb_severe`,
+  `flows_severe`, `shock_mat` dihapus dari `00_master.do`; diganti `scen_sheet`.
+- Label bulan pada tabel dan judul grafik skenario (06, 10) mengikuti anchor, tidak lagi ditulis tetap
+  "Sep-26 / Des-26 / Mar-27".

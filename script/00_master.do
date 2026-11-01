@@ -173,18 +173,11 @@ global H_final 6
 * USD/IDR, cadangan, DXY = perubahan 100*log bulanan; TB dan flows = arus bulanan.
 * Versi level (v1-v2, menarik kurs ke rata-rata sampel) diarsipkan di archive/v2_levels/.
 global model_mode "changes"
-* Skenario ilustratif: titik pembatas (bulan ke-) dan besaran shock
-global cond_horizons "3 6"
-* Adverse / Upside: DXY +/-2% pada akhir horizon, TB -/+ USD1 bn, flows -/+ Rp10 tn
-global dxy_shock 0.02
-global tb_shock 1
-global flows_shock 10
-* Severe Adverse: DXY +5%, TB -USD2 bn, flows -Rp30 tn
-global dxy_severe 0.05
-global tb_severe 2
-global flows_severe 30
-* Matriks shock untuk Mata (baris: Adverse, Upside, Severe Adverse; kolom: DXY, TB, flows)
-global shock_mat "(($dxy_shock, -$tb_shock, -$flows_shock) \ (-$dxy_shock, $tb_shock, $flows_shock) \ ($dxy_severe, -$tb_severe, -$flows_severe))"
+* Asumsi skenario per bulan dibaca dari sheet ini di $data_file (06_final_scenarios.do):
+* DXY kumulatif vs anchor (%), geser TB (USD bn) dan flows (Rp tn) terhadap median baseline;
+* sel TB/flows kosong = bulan itu tidak dikunci. Default: Adverse DXY +2%, TB -1, flows -10;
+* Upside kebalikannya; Severe Adverse DXY +5%, TB -2, flows -30 (TB/flows dikunci di h = 3 dan 6).
+global scen_sheet "scenario_inputs"
 
 set seed $seed
 

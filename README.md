@@ -76,7 +76,8 @@ kurs bergerak?
 3. **Prior Minnesota konjugat** (λ = 0,03): koefisien ditarik ke "tidak ada hubungan", kecuali lag
    trade balance yang berpusat di 0,7 karena trade balance sangat persisten.
 4. **Conditional forecast** (Waggoner & Zha, 1999): jalur DXY ditentukan sebagai input, sedangkan trade
-   balance dan flows "dikunci" di Des-26 dan Mar-27 pada nilai skenario. Model menghitung jalur kurs
+   balance dan flows "dikunci" pada nilai skenario di bulan yang diisi di sheet skenario (default Des-26
+   dan Mar-27). Model menghitung jalur kurs
    yang konsisten dengan kondisi itu, dengan 6.000 simulasi posterior.
 5. **Skenario:**
 
@@ -89,6 +90,21 @@ kurs bergerak?
 
    Besaran Adverse/Upside mengikuti contoh ilustratif di manual; Severe Adverse ditetapkan sebagai
    tekanan sekitar dua kali Adverse. Keduanya belum dikalibrasi ke distribusi historis.
+
+   Asumsi ini diisi per bulan di sheet **`scenario_inputs`** pada `input/Database_Rupiah_Bulanan.xlsx`
+   (satu baris per skenario × bulan ke-h):
+
+   | Kolom | Isi |
+   |:--|:--|
+   | `scenario` | Baseline, Adverse, Upside, Severe Adverse (nama tetap) |
+   | `h` | Bulan ke-h setelah anchor, 1 sampai 6 |
+   | `dxy_pct` | DXY kumulatif terhadap bulan anchor (%), wajib diisi |
+   | `tb_shift_usdbn` | Trade balance dikunci = median Baseline BVARX + angka ini (USD bn); kosong = tidak dikunci |
+   | `flows_shift_idrtn` | Net flows dikunci = median Baseline BVARX + angka ini (Rp tn); kosong = tidak dikunci |
+
+   Isi default sama dengan tabel di atas (DXY bergerak geometrik, TB dan flows dikunci di h = 3 dan 6).
+   Untuk periode baru cukup ubah angka di sheet itu, simpan, lalu jalankan `00_master.do`. Input yang
+   dipakai tercatat di `output/tables/T0_scenario_inputs.csv`.
 
 ### 1.3 Skenario: Baseline BMA + efek skenario BVARX
 
@@ -156,14 +172,13 @@ Setting utama di `00_master.do`:
 | `grid_vix`, `grid_rate`, `grid_ust`, `grid_uip` | Opsi eksogen BVARX (diuji, tidak terpilih) | 0, 0, 0, 0 1 |
 | `tb_prior_mean`, `seas_harm` | Prior lag trade balance; harmonik musiman | 0.7; 2 |
 | `release_lag` | Jeda rilis makro (bulan) | 2 |
-| `dxy_shock`, `tb_shock`, `flows_shock` | Upside/Adverse (±) | 2%, USD1 bn, Rp10 tn |
-| `dxy_severe`, `tb_severe`, `flows_severe` | Severe Adverse | 5%, USD2 bn, Rp30 tn |
+| `scen_sheet` | Sheet asumsi skenario di workbook input (lihat 1.2) | `scenario_inputs` |
 
 ## 5. Struktur folder dan file
 
 | Folder / file | Isi |
 |:--|:--|
-| `input/` | `Database_Rupiah_Bulanan.xlsx` (sheet `database_monthly`, `flow_components`, `rating_events`, `sources`); tidak ditulis kode |
+| `input/` | `Database_Rupiah_Bulanan.xlsx` (sheet `database_monthly`, `flow_components`, `rating_events`, `sources`, `scenario_inputs`); tidak ditulis kode |
 | `input/reference/` | Manual R Markdown asli |
 | `script/00_master.do` | Path, setting, program `bv_out` dan `bv_pngtable`, log, memanggil modul |
 | `script/01_import_audit.do` | Impor, audit data, deskriptif, uji unit root (ADF, Phillips-Perron) |

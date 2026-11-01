@@ -6,8 +6,7 @@
 **## 7.1 Settings penelitian (reproduksibilitas)
 clear
 local items profile seed n_val n_test n_final horizons release_lag ///
-	grid_start grid_p grid_lambda grid_ust grid_rate grid_vix grid_dum grid_uip uip_sd best_start best_p best_lambda best_ust best_rate best_vix best_dum best_uip outlier_months H_final model_mode seas_harm tb_prior_mean cond_horizons ///
-	dxy_shock tb_shock flows_shock dxy_severe tb_severe flows_severe
+	grid_start grid_p grid_lambda grid_ust grid_rate grid_vix grid_dum grid_uip uip_sd best_start best_p best_lambda best_ust best_rate best_vix best_dum best_uip outlier_months H_final model_mode seas_harm tb_prior_mean scen_sheet cond_steps
 local n : word count `items'
 set obs `=`n'+6'
 gen str24 setting = ""
