@@ -1361,12 +1361,16 @@ graph export "$fig_bvarx\4_test_rmse.png", replace width(1800)
 
 **## 6.1 Input skenario (sheet $scen_sheet)
 * Kolom A-E: scenario, h, dxy_pct, tb_shift_usdbn, flows_shift_idrtn. Sel kosong TB/flows = tidak dikunci.
-import excel using "$data_file", sheet("$scen_sheet") cellrange(A1:E200) firstrow case(lower) clear
+* cellrange(A1) = dari A1 sampai akhir data (rentang tetap seperti A1:E200 ditolak Stata jika melewati data)
+import excel using "$data_file", sheet("$scen_sheet") cellrange(A1) firstrow case(lower) clear
 cap confirm variable scenario h dxy_pct tb_shift_usdbn flows_shift_idrtn
 if _rc {
 	di as error "Sheet $scen_sheet harus punya kolom scenario, h, dxy_pct, tb_shift_usdbn, flows_shift_idrtn"
 	exit 111
 }
+keep scenario h dxy_pct tb_shift_usdbn flows_shift_idrtn
+cap confirm string variable scenario
+if _rc tostring scenario, replace
 replace scenario = strtrim(scenario)
 drop if scenario == "" & missing(h)
 * kolom yang seluruhnya kosong terbaca sebagai string

@@ -184,3 +184,22 @@ Hasil run v3, 30 Okt 2026 14:53 (spesifikasi: start 2013, lag 2, lambda 0,1; N =
   `flows_severe`, `shock_mat` dihapus dari `00_master.do`; diganti `scen_sheet`.
 - Label bulan pada tabel dan judul grafik skenario (06, 10) mengikuti anchor, tidak lagi ditulis tetap
   "Sep-26 / Des-26 / Mar-27".
+
+## v4.1.1 — 2 Nov 2026: perbaikan impor sheet dan tabel bantu skenario
+
+- Perbaikan: `06_final_scenarios.do` membaca sheet `scenario_inputs` dengan `cellrange(A1)`.
+  `cellrange(A1:E200)` di v4.1 ditolak Stata ("lower right row is after the data area"), sehingga
+  run penuh v4.1 berhenti di modul 06.
+- Sheet `scenario_inputs`: tabel bantu di kolom H–L untuk mengisi target dalam angka asli (TB USD bn,
+  flows Rp tn, DXY level indeks) bersama baseline BVARX dan DXY anchor (O3–O4). Kolom C–E yang dibaca
+  model kini berupa rumus (geser = target − baseline; dxy_pct = DXY target ÷ anchor − 1). Isi default
+  menghasilkan input yang sama dengan v4. Petunjuk dipindah ke kolom N.
+- Eksperimen di luar repo (scratchpad, 2 Nov 2026), spesifikasi BVARX v4.1 sebagai pembanding:
+  menambah selisih BI–Fed, VIX, atau keduanya memperburuk skor validation (0,927 → 0,985 / 0,949 / 0,985)
+  dan test (1,025 → 1,039 / 1,034 / 1,031). VIX +10% → rupiah +0,13% (t 2,3); selisih BI–Fed tidak
+  berpengaruh ke rupiah (t −0,3). UST10Y level memburuk tajam (val 1,09, test 1,11); perubahan UST10Y
+  setara di test (1,024) tetapi lebih buruk di validation (0,966); +25 bp → rupiah +0,20% (t 1,4),
+  flows −Rp3,7 tn, cadangan −0,29%. Spesifikasi utama tidak diubah.
+- Eksperimen BMA di luar repo (scratchpad, 2 Nov 2026): prediktor disamakan dengan BVARX. Tanpa UST
+  (32 model) rata-rata relative RMSE 0,954; dengan lag kedua seperti BVARX (512 model) 0,955; base
+  (6 prediktor) 0,950. Forecast Mar 2027 18.185 / 18.220 vs 18.196. BMA base dipertahankan.

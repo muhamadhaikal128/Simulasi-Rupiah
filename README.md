@@ -102,6 +102,11 @@ kurs bergerak?
    | `tb_shift_usdbn` | Trade balance dikunci = median Baseline BVARX + angka ini (USD bn); kosong = tidak dikunci |
    | `flows_shift_idrtn` | Net flows dikunci = median Baseline BVARX + angka ini (Rp tn); kosong = tidak dikunci |
 
+   Kolom C–E tidak diketik langsung: isinya rumus dari **tabel bantu** di kolom H–L, tempat target diisi
+   dalam angka asli (TB dalam USD bn, flows dalam Rp tn, DXY dalam level indeks), bersama baseline model
+   (median baseline BVARX dari `T9_scenario_paths_all`) dan DXY anchor (sel O4). Rumusnya: geser = target −
+   baseline, dan `dxy_pct` = (DXY target ÷ DXY anchor − 1) × 100. Baseline (H, J) dan anchor (O3, O4)
+   perlu diperbarui setiap kali data bulan baru masuk.
    Isi default sama dengan tabel di atas (DXY bergerak geometrik, TB dan flows dikunci di h = 3 dan 6).
    Untuk periode baru cukup ubah angka di sheet itu, simpan, lalu jalankan `00_master.do`. Input yang
    dipakai tercatat di `output/tables/T0_scenario_inputs.csv`.
