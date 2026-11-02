@@ -148,7 +148,7 @@ statistik di horizon 6 bulan (5%) dan hampir signifikan di 3 bulan (p 0,06); cov
    diambil setelah melihat hasil test 2024–2026, sehingga angka test cenderung optimistis. Bukti yang
    bersih hanya dari data baru (Okt 2026 dst.) dengan spesifikasi yang dibekukan.
 2. **Keunggulan BMA terutama dari drift.** PIP prediktor sekitar 0,5 (sama dengan prior), kecuali
-   momentum kurs rata-rata bulanan (0,72 / 0,79 / 0,69 untuk h = 1 / 3 / 6); g = 0,25 menyusutkan
+   perubahan kurs rata-rata bulanan (0,72 / 0,79 / 0,69 untuk h = 1 / 3 / 6; koefisien negatif = pembalikan, bukan momentum); g = 0,25 menyusutkan
    koefisien sekitar 80%. Forecast BMA pada dasarnya drift depresiasi historis ditambah sinyal kecil.
 3. **Skenario adalah overlay**: baseline BMA digeser dengan efek dari BVARX, dua model dengan struktur berbeda. Rentang skenario tidak memuat
    ketidakpastian dari jalur skenario itu sendiri.

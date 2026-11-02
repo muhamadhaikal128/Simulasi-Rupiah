@@ -225,3 +225,9 @@ Hasil run v3, 30 Okt 2026 14:53 (spesifikasi: start 2013, lag 2, lambda 0,1; N =
   pengguna. ARIMA(p,1,q), p,q ≤ 2, dengan drift: validation memilih ARIMA(1,1,1) (skor 0,866) tetapi
   test 1,03 / 1,01 / 1,06; estimasi akhir MA = −1,00 (batas non-invertible), forecast Mar 2027 17.321.
   ARIMA(0,1,2) terbaik di test (0,906) tetapi hanya peringkat 4 di validation. BMA dipertahankan.
+
+## Dokumentasi — 2 Nov 2026: flowchart hubungan antarvariabel
+
+- Manual: Gambar 5.1 (hubungan antarvariabel BMA) dan Gambar 6.1 (BVARX); nomor gambar lain di Bab 5–6 bergeser. Deck: slide yang sama di bagian 05 dan 06; deck kini mengikuti urutan bab manual.
+- Koefisien posterior BMA (origin Sep 2026, rata-rata 64 model): perubahan kurs bulan ini −0,05 / −0,09 / −0,08 (h = 1 / 3 / 6), jadi tandanya pembalikan, bukan momentum; istilah "momentum" di manual, deck, dan README diganti. DXY dan UST10Y positif; flows, trade balance, dan cadangan praktis nol. Efek 1 sd prediktor ≤ 0,17% vs konstanta +1,70% di h = 6.
+- Eksperimen scratchpad (tidak dipakai): skenario tanpa Monte Carlo (BVARX dengan rata-rata posterior) memberi rasio hampir identik (Severe Adverse Mar 2027 18.899 vs 18.930); regresi langsung per horizon memberi efek skenario 20–25% lebih kecil dan tidak lebih akurat pada uji dengan jalur DXY/TB/flows aktual (DM p 0,24–0,97). Jumlah draw 10.000 dan 30.000 menggeser hasil gabungan ≤ Rp31 dibanding 6.000; tetap 6.000.
