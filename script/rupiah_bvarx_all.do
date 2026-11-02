@@ -185,8 +185,9 @@ global H_final 6
 global model_mode "changes"
 * Asumsi skenario per bulan dibaca dari sheet ini di $data_file (06_final_scenarios.do):
 * DXY kumulatif vs anchor (%), geser TB (USD bn) dan flows (Rp tn) terhadap median baseline;
-* sel TB/flows kosong = bulan itu tidak dikunci. Default: Adverse DXY +2%, TB -1, flows -10;
-* Upside kebalikannya; Severe Adverse DXY +5%, TB -2, flows -30 (TB/flows dikunci di h = 3 dan 6).
+* sel TB/flows kosong = bulan itu tidak dikunci. Lima skenario: Baseline, Mild Adverse, Adverse,
+* Severe Adverse (DXY +1/+2/+5%, TB -0,5/-1/-2 di h = 3 dan 6, flows = outflow MSCI absolut tiap bulan:
+* total Rp49,58/139,48/247,53 tn), Upside (DXY -2%, TB +1, flows +10 vs baseline di h = 3 dan 6).
 global scen_sheet "scenario_inputs"
 
 set seed $seed
@@ -999,7 +1000,7 @@ program define bv_score
 end
 
 **## 2.6 Run akhir: baseline + skenario (dipakai 06 dan 08)
-* Skenario: 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse.
+* Skenario: 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse, 5 Mild Adverse.
 mata:
 // Ringkasan jalur semua variabel (median, satuan alami) per step: (scen, mdate, s, tb, flows, res)
 // Model changes: cadangan dalam perubahan log (bukan level), jadi kolom res dikosongkan.
@@ -1057,7 +1058,7 @@ real matrix bv_x_effect(struct bvfit scalar f, real scalar k)
 }
 
 // SC = input skenario (sheet scenario_inputs), satu baris per skenario x bulan, terurut skenario lalu h:
-// kolom (kode skenario 1 Baseline / 2 Adverse / 3 Upside / 4 Severe Adverse, h, DXY kumulatif vs origin
+// kolom (kode skenario 1 Baseline / 2 Adverse / 3 Upside / 4 Severe Adverse / 5 Mild Adverse, h, DXY kumulatif vs origin
 // dalam pecahan, geser TB USD bn, geser flows Rp tn). Tiap skenario punya h = 1..H lengkap.
 void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar lambda, real scalar inc_ust, real scalar nd, real matrix SC, real scalar soc)
 {
@@ -1100,7 +1101,7 @@ void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real sc
 	FIN_diag = (1, pb.ess, pb.ess/nd, pb.root_gt1, pb.root_gt105)
 	xc = J(rows(bridge), 1, 0), bridge
 	FIN_glob = ub.times, ub.dxy
-	for (k = 2; k <= 4; k++) {
+	for (k = 2; k <= 5; k++) {
 		S = select(SC, SC[., 1] :== k)
 		if (rows(S) != H) _error("sheet skenario: skenario " + strofreal(k) + " harus berisi h = 1.." + strofreal(H))
 		xs = bv_scen_cond(pb, origin, f.cutoff, S[., (2, 4, 5)])
@@ -1361,7 +1362,7 @@ graph export "$fig_bvarx\4_test_rmse.png", replace width(1800)
 * Model = global model_mode (changes). Skenario ilustratif (bukan shock struktural).
 * Input skenario per bulan dari sheet scenario_inputs di Database_Rupiah_Bulanan.xlsx:
 * DXY kumulatif vs anchor (%), dan geser TB / flows terhadap median baseline pada bulan yang diisi.
-* 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse.
+* 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse, 5 Mild Adverse.
 * Menulis: intermediate/scenario_inputs_used.dta, final_residuals.dta, scenario_*.dta
 * Output:  tables/T0_scenario_inputs, T7_baseline, T8_scenarios, T9_scenario_paths_all,
 *          T10_scenario_inputs, T11_global_paths; diagnostics/D3_residual_tests, D4_residual_corr,
@@ -1389,11 +1390,11 @@ foreach v in h dxy_pct tb_shift_usdbn flows_shift_idrtn {
 	if _rc destring `v', replace
 }
 gen byte code = 1*(lower(scenario) == "baseline") + 2*(lower(scenario) == "adverse") ///
-	+ 3*(lower(scenario) == "upside") + 4*(lower(scenario) == "severe adverse")
+	+ 3*(lower(scenario) == "upside") + 4*(lower(scenario) == "severe adverse") + 5*(lower(scenario) == "mild adverse")
 qui count if code == 0
 if r(N) {
 	list scenario if code == 0, noobs
-	di as error "Nama skenario harus Baseline, Adverse, Upside, atau Severe Adverse"
+	di as error "Nama skenario harus Baseline, Adverse, Upside, Severe Adverse, atau Mild Adverse"
 	exit 198
 }
 qui count if missing(h) | h != round(h) | h < 1 | h > $H_final
@@ -1407,8 +1408,8 @@ if r(N) {
 	exit 198
 }
 qui duplicates report code h
-if r(unique_value) != r(N) | r(N) != 4*$H_final {
-	di as error "Sheet $scen_sheet harus berisi tepat satu baris untuk tiap skenario x h = 1..$H_final (total `=4*$H_final' baris)"
+if r(unique_value) != r(N) | r(N) != 5*$H_final {
+	di as error "Sheet $scen_sheet harus berisi tepat satu baris untuk tiap skenario x h = 1..$H_final (total `=5*$H_final' baris)"
 	exit 198
 }
 qui count if code == 1 & (!missing(tb_shift_usdbn) | !missing(flows_shift_idrtn))
@@ -1425,7 +1426,7 @@ global cond_steps "`ch'"
 gen mdate = $final_origin + h
 format mdate %tm
 mata: SCN = st_data(., ("code", "h", "dxy_frac", "tb_shift_usdbn", "flows_shift_idrtn"))
-label define scen 1 "Baseline" 2 "Adverse" 3 "Upside" 4 "Severe Adverse", replace
+label define scen 1 "Baseline" 2 "Adverse" 3 "Upside" 4 "Severe Adverse" 5 "Mild Adverse", replace
 label values code scen
 keep code scenario h mdate dxy_pct tb_shift_usdbn flows_shift_idrtn
 order code scenario h mdate
@@ -1444,7 +1445,7 @@ di "Training akhir: " %tm $fin_from " sampai " %tm $latest_complete "; N = $fin_
 * label skenario
 cap program drop bv_scenlab
 program define bv_scenlab
-	label define scen 0 "bridge" 1 "Baseline" 2 "Adverse" 3 "Upside" 4 "Severe Adverse", replace
+	label define scen 0 "bridge" 1 "Baseline" 2 "Adverse" 3 "Upside" 4 "Severe Adverse" 5 "Mild Adverse", replace
 	label values scenario scen
 end
 
@@ -1560,7 +1561,7 @@ save "$data\scenario_conditions.dta", replace
 list, noobs sepby(scenario)
 bv_out tab "T10_scenario_inputs"
 
-mata: bv_tostata(FIN_glob, ("mdate", "dxy_baseline", "dxy_adverse", "dxy_upside", "dxy_severe"))
+mata: bv_tostata(FIN_glob, ("mdate", "dxy_baseline", "dxy_adverse", "dxy_upside", "dxy_severe", "dxy_mild"))
 format mdate %tm
 format dxy_* %9.3f
 save "$data\scenario_global_paths.dta", replace
@@ -1634,7 +1635,7 @@ keep if mdate > $final_origin - 24 & mdate <= $final_origin
 append using `fc'
 sort mdate
 * sambungkan garis median ke anchor
-forval s = 1/4 {
+forval s = 1/5 {
 	replace median`s' = usdidr if mdate == $final_origin
 }
 local anch : di %tmMon_CCYY $final_origin
@@ -1644,12 +1645,13 @@ twoway (rarea lower951 upper951 mdate, color("24 90 141%10") lwidth(none)) ///
 	(line median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
 	(line median2 mdate, lcolor("164 87 23") lwidth(medthick) lpattern(dash)) ///
 	(line median3 mdate, lcolor("35 114 74") lwidth(medthick) lpattern(shortdash)) ///
-	(line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)), ///
+	(line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)) ///
+	(line median5 mdate, lcolor("214 160 30") lwidth(medthick) lpattern(dash_dot)), ///
 	xline($final_origin, lcolor(gs10) lpattern(dot)) ///
 	title("USD/IDR: proyeksi bersyarat pada jalur skenario (model $model_mode)", size(medium)) ///
 	subtitle("Band baseline 80% dan 95%; anchor `anch'", size(small)) ///
 	xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
-	legend(order(3 "Aktual" 4 "Baseline" 5 "Adverse" 6 "Upside" 7 "Severe Adverse" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
+	legend(order(3 "Aktual" 4 "Baseline" 8 "Mild Adverse" 5 "Adverse" 7 "Severe Adverse" 6 "Upside" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
 	graphregion(color(white)) name(scen_fan, replace)
 graph save "$gph\6_scenarios_fan.gph", replace
 graph export "$fig_bvarx\6_scenarios_fan.png", replace width(1800)
@@ -1660,7 +1662,7 @@ graph export "$fig_bvarx\6_scenarios_fan.png", replace width(1800)
 * Adverse nilainya dikunci di bulan yang diisi pada sheet skenario (titik berlabel, ditambah bulan
 * terakhir), bulan lain mengikuti model.
 use "$data\scenario_global_paths.dta", clear
-rename (dxy_baseline dxy_adverse dxy_upside dxy_severe) (dxy1 dxy2 dxy3 dxy4)
+rename (dxy_baseline dxy_adverse dxy_upside dxy_severe dxy_mild) (dxy1 dxy2 dxy3 dxy4 dxy5)
 reshape long dxy, i(mdate) j(scenario)
 keep if mdate >= $final_origin
 tempfile gl
@@ -1678,14 +1680,14 @@ foreach v in dxy tb flows {
 }
 save "$data\scenario_macro_paths.dta", replace
 
-local cols `""24 90 141" "164 87 23" "35 114 74" "170 30 30""'
-local pats "solid dash shortdash longdash"
+local cols `""24 90 141" "164 87 23" "35 114 74" "170 30 30" "214 160 30""'
+local pats "solid dash shortdash longdash dash_dot"
 local k 0
 foreach v in dxy tb flows {
 	local ++k
 	local t : word `k' of "DXY (indeks)" "Trade balance (USD bn)" "Net flows (Rp tn)"
 	local plots ""
-	forval s = 1/4 {
+	forval s = 1/5 {
 		local c : word `s' of `cols'
 		local pt : word `s' of `pats'
 		local plots `plots' (line `v' mdate if scenario == `s', lcolor("`c'") lpattern(`pt') lwidth(medthick))
@@ -1698,7 +1700,7 @@ foreach v in dxy tb flows {
 }
 graph combine mac1 mac2 mac3, cols(3) graphregion(color(white)) xsize(13) ysize(4.8) ///
 	title("Asumsi makro per skenario", size(medium)) ///
-	note("Garis: Baseline = biru utuh; Adverse = oranye putus-putus; Upside = hijau titik-titik; Severe Adverse = merah putus panjang." ///
+	note("Garis: Baseline = biru utuh; Mild Adverse = kuning titik-garis; Adverse = oranye putus-putus; Severe Adverse = merah putus panjang; Upside = hijau titik-titik." ///
 		"Angka berlabel = bulan yang dikunci di sheet skenario (h = $cond_steps) dan bulan terakhir. TB dan flows Baseline = median model.", size(vsmall)) ///
 	name(scen_macro, replace)
 graph save "$gph\6_scenario_macro.gph", replace
@@ -1793,9 +1795,9 @@ keep scenario mdate cell
 reshape wide cell, i(mdate) j(scenario)
 gen str12 bulan = string(mdate, "%tmMon_CCYY")
 sort mdate
-bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig_bvarx\6_forecast_table.png") ///
+bv_pngtable bulan cell1 cell5 cell2 cell4 cell3, file("$fig_bvarx\6_forecast_table.png") ///
 	title("Forecast USD/IDR per skenario: median [rentang 80%] (model $model_mode, anchor `: di %tmMon_CCYY $final_origin' = `=strtrim(string($anchor_spot, "%9.0fc"))')") ///
-	heads("Bulan" "Baseline" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
+	heads("Bulan" "Baseline" "Mild Adverse" "Adverse" "Severe Adverse" "Upside") widths(14 22 22 22 22 22) ///
 	note("Asumsi skenario: lihat 6_scenario_macro.png dan 6_scenario_table.png. Rentang = interval prediktif 80% (posterior predictive).")
 
 * ---------------------------------------------------------------- 07_export.do
@@ -2410,9 +2412,9 @@ preserve
 	reshape wide cell, i(mdate) j(scenario)
 	gen str12 bulan = string(mdate, "%tmMon_CCYY")
 	sort mdate
-	bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\10_hybrid_table.png") ///
+	bv_pngtable bulan cell1 cell5 cell2 cell4 cell3, file("$fig\10_hybrid_table.png") ///
 		title("Forecast USD/IDR per skenario: median [rentang 80%], anchor `: di %tmMon_CCYY $final_origin' = `=strtrim(string($anchor_spot, "%9.0fc"))'") ///
-		heads("Bulan" "Baseline (BMA)" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
+		heads("Bulan" "Baseline (BMA)" "Mild Adverse" "Adverse" "Severe Adverse" "Upside") widths(14 22 22 22 22 22) ///
 		note("Baseline = BMA. Skenario = Baseline BMA x (skenario / baseline) BVARX. Rentang = interval prediktif 80% BMA, digeser sesuai skenario.")
 restore
 
@@ -2425,7 +2427,7 @@ use mdate usdidr using "$data\database.dta", clear
 keep if mdate > $final_origin - 24 & mdate <= $final_origin
 append using `hw'
 sort mdate
-forval s = 1/4 {
+forval s = 1/5 {
 	replace median`s' = usdidr if mdate == $final_origin
 }
 local anch : di %tmMon_CCYY $final_origin
@@ -2435,12 +2437,13 @@ twoway (rarea lower951 upper951 mdate, color("24 90 141%10") lwidth(none)) ///
 	(line median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
 	(line median2 mdate, lcolor("164 87 23") lwidth(medthick) lpattern(dash)) ///
 	(line median3 mdate, lcolor("35 114 74") lwidth(medthick) lpattern(shortdash)) ///
-	(line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)), ///
+	(line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)) ///
+	(line median5 mdate, lcolor("214 160 30") lwidth(medthick) lpattern(dash_dot)), ///
 	xline($final_origin, lcolor(gs10) lpattern(dot)) ///
 	title("USD/IDR: Baseline BMA dan skenario (efek skenario dari BVARX)", size(medium)) ///
 	subtitle("Band Baseline BMA 80% dan 95%; anchor `anch'", size(small)) ///
 	xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
-	legend(order(3 "Aktual" 4 "Baseline (BMA)" 5 "Adverse" 6 "Upside" 7 "Severe Adverse" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
+	legend(order(3 "Aktual" 4 "Baseline (BMA)" 8 "Mild Adverse" 5 "Adverse" 7 "Severe Adverse" 6 "Upside" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
 	graphregion(color(white)) name(hybrid_fan, replace)
 graph save "$gph\10_hybrid_fan.gph", replace
 graph export "$fig\10_hybrid_fan.png", replace width(1800)

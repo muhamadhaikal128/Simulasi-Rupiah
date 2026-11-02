@@ -251,3 +251,21 @@ _final standard 6.000 → 10.000 (ESS Severe Adverse 0,09 = 927 draw efektif).
 - Manual, deck, README diperbarui; flowchart contoh skenario dan Monte Carlo memakai angka baru.
 - Uji scratchpad DMA/DMS (Raftery dkk. 2010; Koop & Korobilis 2012): λ terpilih 1 (koefisien tetap),
   rata-rata relative RMSE 0,928 vs BMA 0,944, tidak signifikan (DM p 0,15–0,99). BMA dipertahankan.
+
+## v4.4 — 3 Nov 2026: skenario kelima Mild Adverse; asal angka outflow MSCI; deck ringkas
+
+- Skenario kelima **Mild Adverse** (kode 5): DXY +1%, TB −0,5 vs baseline (h = 3, 6), outflow tiap bulan
+  4,96 / 4,96 / 7,44 / 7,44 / 9,92 / 14,87 (total Rp49,58 tn). Kode skenario 1–4 tidak berubah.
+- Kode:  2 (loop skenario sampai 5),  6 dan 10 (validasi nama dan jumlah baris, label, jalur DXY
+  dxy_mild, fan chart, grafik makro, tabel PNG berurutan Baseline → Mild → Adverse → Severe → Upside).
+  Sheet scenario_inputs: 30 baris (5 skenario × 6 bulan).
+- Asal outflow (Estimasi_Outflow_MSCI_6_Bulan.xlsx, berbasis DEN_MSCI.pptx 19 Okt 2026): potensi saham
+  Standalone 7,96 / 14,86 / 21,76 − pasif 4,5, × 50% dalam 6 bulan, + SBN 2/5/10% dari US miliar =
+  US,73 / 7,68 / 13,63 miliar × JISDOR 18.161; bobot bulanan 10/10/15/15/20/30%.
+- Hasil Apr 2027: Mild Adverse 18.914 [17.939–19.941] (+2,5% vs baseline, ESS 0,76). Empat skenario lain
+  identik dengan v4.3 (seed sama).
+- Manual: Mild Adverse di Tabel 1.2, 6.2, 7.1, 7.4, 7.5 dan Bab 9 (Tabel 9.3 baru; nomor tabel 9.x
+  berikutnya bergeser); paragraf asal angka outflow di Bab 7.1.
+- Deck baru output/Simulasi_Rupiah_Ringkas_v2.pptx (24 slide, urutan: tujuan → konsep → skenario dan
+  logika outflow → BMA → BVARX → hasil gabungan → evaluasi, diagnostik, treatment). Deck lengkap lama
+  (Simulasi_Rupiah_BMA_BVARX.pptx) belum memuat Mild Adverse.

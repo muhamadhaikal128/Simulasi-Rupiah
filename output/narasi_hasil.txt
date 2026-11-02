@@ -16,5 +16,6 @@ Skenario Baseline: median USD/IDR pada Apr 2027 adalah   18360, dengan rentang p
 Skenario Adverse: median USD/IDR pada Apr 2027 adalah   19314, dengan rentang predictive 80%   18413-  20205.
 Skenario Upside: median USD/IDR pada Apr 2027 adalah   18077, dengan rentang predictive 80%   17229-  18953.
 Skenario Severe Adverse: median USD/IDR pada Apr 2027 adalah   20059, dengan rentang predictive 80%   19101-  21074.
+Skenario Mild Adverse: median USD/IDR pada Apr 2027 adalah   18813, dengan rentang predictive 80%   17972-  19692.
 
 Bersyarat pada jalur DXY dan pembatasan observabel yang dijelaskan. Skenario adalah proyeksi bersama model, bukan estimasi efek kausal tunggal.

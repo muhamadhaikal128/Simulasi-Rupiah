@@ -590,7 +590,7 @@ program define bv_score
 end
 
 **## 2.6 Run akhir: baseline + skenario (dipakai 06 dan 08)
-* Skenario: 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse.
+* Skenario: 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse, 5 Mild Adverse.
 mata:
 // Ringkasan jalur semua variabel (median, satuan alami) per step: (scen, mdate, s, tb, flows, res)
 // Model changes: cadangan dalam perubahan log (bukan level), jadi kolom res dikosongkan.
@@ -648,7 +648,7 @@ real matrix bv_x_effect(struct bvfit scalar f, real scalar k)
 }
 
 // SC = input skenario (sheet scenario_inputs), satu baris per skenario x bulan, terurut skenario lalu h:
-// kolom (kode skenario 1 Baseline / 2 Adverse / 3 Upside / 4 Severe Adverse, h, DXY kumulatif vs origin
+// kolom (kode skenario 1 Baseline / 2 Adverse / 3 Upside / 4 Severe Adverse / 5 Mild Adverse, h, DXY kumulatif vs origin
 // dalam pecahan, geser TB USD bn, geser flows Rp tn). Tiap skenario punya h = 1..H lengkap.
 void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar lambda, real scalar inc_ust, real scalar nd, real matrix SC, real scalar soc)
 {
@@ -691,7 +691,7 @@ void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real sc
 	FIN_diag = (1, pb.ess, pb.ess/nd, pb.root_gt1, pb.root_gt105)
 	xc = J(rows(bridge), 1, 0), bridge
 	FIN_glob = ub.times, ub.dxy
-	for (k = 2; k <= 4; k++) {
+	for (k = 2; k <= 5; k++) {
 		S = select(SC, SC[., 1] :== k)
 		if (rows(S) != H) _error("sheet skenario: skenario " + strofreal(k) + " harus berisi h = 1.." + strofreal(H))
 		xs = bv_scen_cond(pb, origin, f.cutoff, S[., (2, 4, 5)])

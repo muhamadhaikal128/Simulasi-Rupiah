@@ -2,10 +2,10 @@
       name:  main
        log:  C:\Users\LENOVO05\github\Simulasi-Rupiah\output\run_log.log
   log type:  text
- opened on:   2 Nov 2026, 23:33:51
+ opened on:   3 Nov 2026, 00:12:11
 
 . di "Mulai: `c(current_date)' `c(current_time)'  profile=$profile"
-Mulai:  2 Nov 2026 23:33:51  profile=standard
+Mulai:  3 Nov 2026 00:12:11  profile=standard
 
 . timer clear 1
 
@@ -1032,7 +1032,7 @@ note: variable root may be used before set.
 
 . 
 . **## 2.6 Run akhir: baseline + skenario (dipakai 06 dan 08)
-. * Skenario: 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse.
+. * Skenario: 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse, 5 Mild Adverse.
 . mata:
 ------------------------------------------------- mata (type end to exit) ----------------------------------------------
 : // Ringkasan jalur semua variabel (median, satuan alami) per step: (scen, mdate, s, tb, flows, res)
@@ -1094,7 +1094,8 @@ note: variable root may be used before set.
 
 : 
 : // SC = input skenario (sheet scenario_inputs), satu baris per skenario x bulan, terurut skenario lalu h:
-: // kolom (kode skenario 1 Baseline / 2 Adverse / 3 Upside / 4 Severe Adverse, h, DXY kumulatif vs origin
+: // kolom (kode skenario 1 Baseline / 2 Adverse / 3 Upside / 4 Severe Adverse / 5 Mild Adverse, h, DXY kumulatif vs ori
+> gin
 : // dalam pecahan, geser TB USD bn, geser flows Rp tn). Tiap skenario punya h = 1..H lengkap.
 : void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar l
 > ambda, real scalar inc_ust, real scalar nd, real matrix SC, real scalar soc)
@@ -1138,7 +1139,7 @@ note: variable root may be used before set.
 >         FIN_diag = (1, pb.ess, pb.ess/nd, pb.root_gt1, pb.root_gt105)
 >         xc = J(rows(bridge), 1, 0), bridge
 >         FIN_glob = ub.times, ub.dxy
->         for (k = 2; k <= 4; k++) {
+>         for (k = 2; k <= 5; k++) {
 >                 S = select(SC, SC[., 1] :== k)
 >                 if (rows(S) != H) _error("sheet skenario: skenario " + strofreal(k) + " harus berisi h = 1.." + strofr
 > eal(H))
@@ -1785,7 +1786,7 @@ end of do-file
 . * Model = global model_mode (changes). Skenario ilustratif (bukan shock struktural).
 . * Input skenario per bulan dari sheet scenario_inputs di Database_Rupiah_Bulanan.xlsx:
 . * DXY kumulatif vs anchor (%), dan geser TB / flows terhadap median baseline pada bulan yang diisi.
-. * 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse.
+. * 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse, 5 Mild Adverse.
 . * Menulis: intermediate/scenario_inputs_used.dta, final_residuals.dta, scenario_*.dta
 . * Output:  tables/T0_scenario_inputs, T7_baseline, T8_scenarios, T9_scenario_paths_all,
 . *          T10_scenario_inputs, T11_global_paths; diagnostics/D3_residual_tests, D4_residual_corr,
@@ -1797,7 +1798,7 @@ end of do-file
 . * Kolom A-E: scenario, h, dxy_pct, tb_shift_usdbn, flows_shift_idrtn. Sel kosong TB/flows = tidak dikunci.
 . * cellrange(A1) = dari A1 sampai akhir data (rentang tetap seperti A1:E200 ditolak Stata jika melewati data)
 . import excel using "$data_file", sheet("$scen_sheet") cellrange(A1) firstrow case(lower) clear
-(15 vars, 24 obs)
+(15 vars, 30 obs)
 
 . cap confirm variable scenario h dxy_pct tb_shift_usdbn flows_shift_idrtn
 
@@ -1825,13 +1826,14 @@ end of do-file
   4. }
 
 . gen byte code = 1*(lower(scenario) == "baseline") + 2*(lower(scenario) == "adverse") ///
->         + 3*(lower(scenario) == "upside") + 4*(lower(scenario) == "severe adverse")
+>         + 3*(lower(scenario) == "upside") + 4*(lower(scenario) == "severe adverse") + 5*(lower(scenario) == "mild adve
+> rse")
 
 . qui count if code == 0
 
 . if r(N) {
 .         list scenario if code == 0, noobs
-.         di as error "Nama skenario harus Baseline, Adverse, Upside, atau Severe Adverse"
+.         di as error "Nama skenario harus Baseline, Adverse, Upside, Severe Adverse, atau Mild Adverse"
 .         exit 198
 . }
 
@@ -1851,8 +1853,8 @@ end of do-file
 
 . qui duplicates report code h
 
-. if r(unique_value) != r(N) | r(N) != 4*$H_final {
-.         di as error "Sheet $scen_sheet harus berisi tepat satu baris untuk tiap skenario x h = 1..$H_final (total `=4*
+. if r(unique_value) != r(N) | r(N) != 5*$H_final {
+.         di as error "Sheet $scen_sheet harus berisi tepat satu baris untuk tiap skenario x h = 1..$H_final (total `=5*
 > $H_final' baris)"
 .         exit 198
 . }
@@ -1880,7 +1882,7 @@ end of do-file
 
 . mata: SCN = st_data(., ("code", "h", "dxy_frac", "tb_shift_usdbn", "flows_shift_idrtn"))
 
-. label define scen 1 "Baseline" 2 "Adverse" 3 "Upside" 4 "Severe Adverse", replace
+. label define scen 1 "Baseline" 2 "Adverse" 3 "Upside" 4 "Severe Adverse" 5 "Mild Adverse", replace
 
 . label values code scen
 
@@ -1920,6 +1922,13 @@ end of do-file
   | Severe Adverse   Severe Adverse   4    2027m2      3.31          .   -44.808233 |
   | Severe Adverse   Severe Adverse   5    2027m3      4.15          .   -54.486902 |
   | Severe Adverse   Severe Adverse   6    2027m4      5.00         -2   -79.893109 |
+  |---------------------------------------------------------------------------------|
+  |   Mild Adverse     Mild Adverse   1   2026m11      0.17          .   -7.8649095 |
+  |   Mild Adverse     Mild Adverse   2   2026m12      0.33          .   -12.708041 |
+  |   Mild Adverse     Mild Adverse   3    2027m1      0.50        -.5   -17.557175 |
+  |   Mild Adverse     Mild Adverse   4    2027m2      0.67          .   -15.118233 |
+  |   Mild Adverse     Mild Adverse   5    2027m3      0.83          .   -14.896902 |
+  |   Mild Adverse     Mild Adverse   6    2027m4      1.00        -.5   -20.503109 |
   +---------------------------------------------------------------------------------+
 
 . save "$data\scenario_inputs_used.dta", replace
@@ -1947,7 +1956,8 @@ Training akhir:  2014m1 sampai  2026m9; N = 153
 . cap program drop bv_scenlab
 
 . program define bv_scenlab
-  1.         label define scen 0 "bridge" 1 "Baseline" 2 "Adverse" 3 "Upside" 4 "Severe Adverse", replace
+  1.         label define scen 0 "bridge" 1 "Baseline" 2 "Adverse" 3 "Upside" 4 "Severe Adverse" 5 "Mild Adverse", repla
+> ce
   2.         label values scenario scen
   3. end
 
@@ -2094,7 +2104,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\6_re
 . format mdate %tm
 
 . gen double spot_anchor = .
-(24 missing values generated)
+(30 missing values generated)
 
 . preserve
 
@@ -2107,7 +2117,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\6_re
 . restore
 
 . replace spot_anchor = $anchor_spot
-(24 real changes made)
+(30 real changes made)
 
 . gen double pct_vs_anchor = 100*(median/spot_anchor - 1)
 
@@ -2152,6 +2162,13 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_spot.dta sav
   | Severe Adverse    2027m2     18403    19128     19881       5.52       0.09 |
   | Severe Adverse    2027m3     18684    19507     20346       7.61       0.09 |
   | Severe Adverse    2027m4     19101    20059     21074      10.66       0.09 |
+  |-----------------------------------------------------------------------------|
+  |   Mild Adverse   2026m11     17904    18228     18559       0.56       0.76 |
+  |   Mild Adverse   2026m12     17837    18302     18794       0.96       0.76 |
+  |   Mild Adverse    2027m1     17810    18379     18986       1.39       0.76 |
+  |   Mild Adverse    2027m2     17797    18472     19167       1.90       0.76 |
+  |   Mild Adverse    2027m3     17854    18609     19401       2.66       0.76 |
+  |   Mild Adverse    2027m4     17972    18813     19692       3.78       0.76 |
   +-----------------------------------------------------------------------------+
 
 . bv_out tab "T8_scenarios"
@@ -2160,7 +2177,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T8_scenarios.csv sav
 . preserve
 
 .         keep if scenario == 1
-(18 observations deleted)
+(24 observations deleted)
 
 .         bv_out tab "T7_baseline"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T7_baseline.csv saved
@@ -2230,13 +2247,22 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_conditions.d
   | Severe Adverse      6    2027m3          3       -4.951    y_flows       -49.51 |
   | Severe Adverse      7    2027m4          2   -.28280966       y_tb   -.28280966 |
   | Severe Adverse      7    2027m4          3       -7.426    y_flows       -74.26 |
+  |---------------------------------------------------------------------------------|
+  |   Mild Adverse      2   2026m11          3        -.496    y_flows        -4.96 |
+  |   Mild Adverse      3   2026m12          3        -.496    y_flows        -4.96 |
+  |   Mild Adverse      4    2027m1          2     1.127146       y_tb     1.127146 |
+  |   Mild Adverse      4    2027m1          3        -.744    y_flows        -7.44 |
+  |   Mild Adverse      5    2027m2          3        -.744    y_flows        -7.44 |
+  |   Mild Adverse      6    2027m3          3        -.992    y_flows        -9.92 |
+  |   Mild Adverse      7    2027m4          2    1.2171903       y_tb    1.2171903 |
+  |   Mild Adverse      7    2027m4          3       -1.487    y_flows       -14.87 |
   +---------------------------------------------------------------------------------+
 
 . bv_out tab "T10_scenario_inputs"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T10_scenario_inputs.csv saved
 
 . 
-. mata: bv_tostata(FIN_glob, ("mdate", "dxy_baseline", "dxy_adverse", "dxy_upside", "dxy_severe"))
+. mata: bv_tostata(FIN_glob, ("mdate", "dxy_baseline", "dxy_adverse", "dxy_upside", "dxy_severe", "dxy_mild"))
 
 . format mdate %tm
 
@@ -2266,6 +2292,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T11_global_paths.csv
            Adverse   4868      0.487      0.000      0.000         0  
             Upside   9179      0.918      0.000      0.000         0  
     Severe Adverse    927      0.093      0.000      0.000         0  
+      Mild Adverse   7562      0.756      0.000      0.000         0  
 
 . save "$data\scenario_diag.dta", replace
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_diag.dta saved
@@ -2363,19 +2390,19 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D6_dxy_effect.c
 . keep scenario mdate lower95 lower80 median upper80 upper95
 
 . reshape wide lower95 lower80 median upper80 upper95, i(mdate) j(scenario)
-(j = 1 2 3 4)
+(j = 1 2 3 4 5)
 
 Data                               Long   ->   Wide
 -----------------------------------------------------------------------------
-Number of observations               24   ->   6           
-Number of variables                   7   ->   21          
-j variable (4 values)          scenario   ->   (dropped)
+Number of observations               30   ->   6           
+Number of variables                   7   ->   26          
+j variable (5 values)          scenario   ->   (dropped)
 xij variables:
-                                lower95   ->   lower951 lower952 ... lower954
-                                lower80   ->   lower801 lower802 ... lower804
-                                 median   ->   median1 median2 ... median4
-                                upper80   ->   upper801 upper802 ... upper804
-                                upper95   ->   upper951 upper952 ... upper954
+                                lower95   ->   lower951 lower952 ... lower955
+                                lower80   ->   lower801 lower802 ... lower805
+                                 median   ->   median1 median2 ... median5
+                                upper80   ->   upper801 upper802 ... upper805
+                                upper95   ->   upper951 upper952 ... upper955
 -----------------------------------------------------------------------------
 
 . tempfile fc
@@ -2394,9 +2421,10 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000005.tmp saved as .dta forma
 . sort mdate
 
 . * sambungkan garis median ke anchor
-. forval s = 1/4 {
+. forval s = 1/5 {
   2.         replace median`s' = usdidr if mdate == $final_origin
   3. }
+(1 real change made)
 (1 real change made)
 (1 real change made)
 (1 real change made)
@@ -2410,13 +2438,14 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000005.tmp saved as .dta forma
 >         (line median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
 >         (line median2 mdate, lcolor("164 87 23") lwidth(medthick) lpattern(dash)) ///
 >         (line median3 mdate, lcolor("35 114 74") lwidth(medthick) lpattern(shortdash)) ///
->         (line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)), ///
+>         (line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)) ///
+>         (line median5 mdate, lcolor("214 160 30") lwidth(medthick) lpattern(dash_dot)), ///
 >         xline($final_origin, lcolor(gs10) lpattern(dot)) ///
 >         title("USD/IDR: proyeksi bersyarat pada jalur skenario (model $model_mode)", size(medium)) ///
 >         subtitle("Band baseline 80% dan 95%; anchor `anch'", size(small)) ///
 >         xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
->         legend(order(3 "Aktual" 4 "Baseline" 5 "Adverse" 6 "Upside" 7 "Severe Adverse" 2 "Band 80%" 1 "Band 95%") rows
-> (2) size(small) position(6)) ///
+>         legend(order(3 "Aktual" 4 "Baseline" 8 "Mild Adverse" 5 "Adverse" 7 "Severe Adverse" 6 "Upside" 2 "Band 80%" 1
+>  "Band 95%") rows(2) size(small) position(6)) ///
 >         graphregion(color(white)) name(scen_fan, replace)
 
 . graph save "$gph\6_scenarios_fan.gph", replace
@@ -2433,18 +2462,18 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\6_sc
 . * terakhir), bulan lain mengikuti model.
 . use "$data\scenario_global_paths.dta", clear
 
-. rename (dxy_baseline dxy_adverse dxy_upside dxy_severe) (dxy1 dxy2 dxy3 dxy4)
+. rename (dxy_baseline dxy_adverse dxy_upside dxy_severe dxy_mild) (dxy1 dxy2 dxy3 dxy4 dxy5)
 
 . reshape long dxy, i(mdate) j(scenario)
-(j = 1 2 3 4)
+(j = 1 2 3 4 5)
 
 Data                               Wide   ->   Long
 -----------------------------------------------------------------------------
-Number of observations                7   ->   28          
-Number of variables                   5   ->   3           
-j variable (4 values)                     ->   scenario
+Number of observations                7   ->   35          
+Number of variables                   6   ->   3           
+j variable (5 values)                     ->   scenario
 xij variables:
-                     dxy1 dxy2 ... dxy4   ->   dxy
+                     dxy1 dxy2 ... dxy5   ->   dxy
 -----------------------------------------------------------------------------
 
 . keep if mdate >= $final_origin
@@ -2465,11 +2494,11 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000006.tmp saved as .dta forma
 
     Result                      Number of obs
     -----------------------------------------
-    Not matched                             4
+    Not matched                             5
         from master                         0  
-        from using                          4  
+        from using                          5  
 
-    Matched                                24  
+    Matched                                30  
     -----------------------------------------
 
 . bv_scenlab
@@ -2479,22 +2508,22 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000006.tmp saved as .dta forma
 . gen byte lab_pt = mdate == $final_origin + $H_final
 
 . if "$cond_steps" != "" replace lab_pt = 1 if inlist(mdate - $final_origin, $cond_steps)
-(20 real changes made)
+(25 real changes made)
 
 . foreach v in dxy tb flows {
   2.         gen str8 l_`v' = string(`v', "%5.1f") if lab_pt
   3. }
-(4 missing values generated)
-(4 missing values generated)
-(4 missing values generated)
+(5 missing values generated)
+(5 missing values generated)
+(5 missing values generated)
 
 . save "$data\scenario_macro_paths.dta", replace
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_macro_paths.dta saved
 
 . 
-. local cols `""24 90 141" "164 87 23" "35 114 74" "170 30 30""'
+. local cols `""24 90 141" "164 87 23" "35 114 74" "170 30 30" "214 160 30""'
 
-. local pats "solid dash shortdash longdash"
+. local pats "solid dash shortdash longdash dash_dot"
 
 . local k 0
 
@@ -2502,7 +2531,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_macro_paths.
   2.         local ++k
   3.         local t : word `k' of "DXY (indeks)" "Trade balance (USD bn)" "Net flows (Rp tn)"
   4.         local plots ""
-  5.         forval s = 1/4 {
+  5.         forval s = 1/5 {
   6.                 local c : word `s' of `cols'
   7.                 local pt : word `s' of `pats'
   8.                 local plots `plots' (line `v' mdate if scenario == `s', lcolor("`c'") lpattern(`pt') lwidth(medthic
@@ -2518,8 +2547,8 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_macro_paths.
 
 . graph combine mac1 mac2 mac3, cols(3) graphregion(color(white)) xsize(13) ysize(4.8) ///
 >         title("Asumsi makro per skenario", size(medium)) ///
->         note("Garis: Baseline = biru utuh; Adverse = oranye putus-putus; Upside = hijau titik-titik; Severe Adverse = 
-> merah putus panjang." ///
+>         note("Garis: Baseline = biru utuh; Mild Adverse = kuning titik-garis; Adverse = oranye putus-putus; Severe Adv
+> erse = merah putus panjang; Upside = hijau titik-titik." ///
 >                 "Angka berlabel = bulan yang dikunci di sheet skenario (h = $cond_steps) dan bulan terakhir. TB dan fl
 > ows Baseline = median model.", size(vsmall)) ///
 >         name(scen_macro, replace)
@@ -2535,7 +2564,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\6_sc
 . use "$data\scenario_macro_paths.dta", clear
 
 . keep if inlist(mdate, $final_origin + 3, $final_origin + 6)
-(20 observations deleted)
+(25 observations deleted)
 
 . gen byte hh = mdate - $final_origin
 
@@ -2546,7 +2575,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\6_sc
 
 Data                               Long   ->   Wide
 -----------------------------------------------------------------------------
-Number of observations                8   ->   4           
+Number of observations               10   ->   5           
 Number of variables                   6   ->   9           
 j variable (2 values)                hh   ->   (dropped)
 xij variables:
@@ -2574,7 +2603,7 @@ xij variables:
 .         use "$data\scenario_spot.dta", clear
 
 .         keep if mdate == $final_origin + 6
-(20 observations deleted)
+(25 observations deleted)
 
 .         keep scenario lower80 upper80
 
@@ -2591,7 +2620,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000009.tmp saved as .dta forma
     Result                      Number of obs
     -----------------------------------------
     Not matched                             0
-    Matched                                 4  
+    Matched                                 5  
     -----------------------------------------
 
 . gen double pct_vs_anchor6 = 100*(usdidr6/$anchor_spot - 1)
@@ -2642,6 +2671,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000009.tmp saved as .dta forma
            Adverse        2.0    0.6    0.7    -20.9    -41.8     18562     19314     18413     20205        6.5  
             Upside       -2.0    2.6    2.7     20.1     15.6     18032     18077     17229     18953       -0.3  
     Severe Adverse        5.0   -0.4   -0.3    -37.1    -74.3     18871     20059     19101     21074       10.7  
+      Mild Adverse        1.0    1.1    1.2     -7.4    -14.9     18379     18813     17972     19692        3.8  
 
 . save "$data\scenario_summary.dta", replace
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_summary.dta saved
@@ -2712,25 +2742,25 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\6_sc
 . keep scenario mdate cell
 
 . reshape wide cell, i(mdate) j(scenario)
-(j = 1 2 3 4)
+(j = 1 2 3 4 5)
 
 Data                               Long   ->   Wide
 -----------------------------------------------------------------------------
-Number of observations               24   ->   6           
-Number of variables                   3   ->   5           
-j variable (4 values)          scenario   ->   (dropped)
+Number of observations               30   ->   6           
+Number of variables                   3   ->   6           
+j variable (5 values)          scenario   ->   (dropped)
 xij variables:
-                                   cell   ->   cell1 cell2 ... cell4
+                                   cell   ->   cell1 cell2 ... cell5
 -----------------------------------------------------------------------------
 
 . gen str12 bulan = string(mdate, "%tmMon_CCYY")
 
 . sort mdate
 
-. bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig_bvarx\6_forecast_table.png") ///
+. bv_pngtable bulan cell1 cell5 cell2 cell4 cell3, file("$fig_bvarx\6_forecast_table.png") ///
 >         title("Forecast USD/IDR per skenario: median [rentang 80%] (model $model_mode, anchor `: di %tmMon_CCYY $final
 > _origin' = `=strtrim(string($anchor_spot, "%9.0fc"))')") ///
->         heads("Bulan" "Baseline" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
+>         heads("Bulan" "Baseline" "Mild Adverse" "Adverse" "Severe Adverse" "Upside") widths(14 22 22 22 22 22) ///
 >         note("Asumsi skenario: lihat 6_scenario_macro.png dan 6_scenario_table.png. Rentang = interval prediktif 80% (
 > posterior predictive).")
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\6_forecast_table.png saved as PNG format
@@ -2922,7 +2952,7 @@ Number of observations (_N) was 0, now 37.
        latest_complete                          2026m9  
           final_origin                         2026m10  
          stata_version                         19.5 MP  
-              run_date             2 Nov 2026 23:35:00  
+              run_date             3 Nov 2026 00:13:23  
 
 . bv_out tab "S0_settings"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/S0_settings.csv saved
@@ -2981,7 +3011,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/A0_database_imported
 . use "$data\scenario_spot.dta", clear
 
 . keep if mdate == $final_origin + $H_final
-(20 observations deleted)
+(25 observations deleted)
 
 . forval i = 1/`=_N' {
   2.         local sc : label scen `=scenario[`i']'
@@ -3021,6 +3051,7 @@ Skenario Baseline: median USD/IDR pada Apr 2027 adalah   18360, dengan rentang p
 Skenario Adverse: median USD/IDR pada Apr 2027 adalah   19314, dengan rentang predictive 80%   18413-  20205.
 Skenario Upside: median USD/IDR pada Apr 2027 adalah   18077, dengan rentang predictive 80%   17229-  18953.
 Skenario Severe Adverse: median USD/IDR pada Apr 2027 adalah   20059, dengan rentang predictive 80%   19101-  21074.
+Skenario Mild Adverse: median USD/IDR pada Apr 2027 adalah   18813, dengan rentang predictive 80%   17972-  19692.
 
 Bersyarat pada jalur DXY dan pembatasan observabel yang dijelaskan. Skenario adalah proyeksi bersama model, bukan estima
 > si efek kausal tunggal.
@@ -3047,7 +3078,7 @@ end of do-file
 . use "$data\scenario_spot.dta", clear
 
 . keep if scenario == 1
-(18 observations deleted)
+(24 observations deleted)
 
 . keep mdate lower95 lower80 median upper80 upper95
 
@@ -4054,7 +4085,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000001.tmp saved as .dta forma
     Result                      Number of obs
     -----------------------------------------
     Not matched                             0
-    Matched                                24  
+    Matched                                30  
     -----------------------------------------
 
 . foreach v in median lower80 upper80 lower95 upper95 {
@@ -4115,6 +4146,13 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\hybrid_scenarios.dta 
   | Severe Adverse    2027m2     18407    19296     20228       6.45       5.21 |
   | Severe Adverse    2027m3     18686    19656     20676       8.43       6.81 |
   | Severe Adverse    2027m4     19128    20166     21262      11.25       9.25 |
+  |-----------------------------------------------------------------------------|
+  |   Mild Adverse   2026m11     17701    18225     18764       0.54       0.27 |
+  |   Mild Adverse   2026m12     17645    18349     19082       1.23       0.68 |
+  |   Mild Adverse    2027m1     17684    18484     19319       1.97       1.13 |
+  |   Mild Adverse    2027m2     17776    18634     19534       2.80       1.60 |
+  |   Mild Adverse    2027m3     17826    18751     19724       3.44       1.89 |
+  |   Mild Adverse    2027m4     17939    18914     19941       4.34       2.46 |
   +-----------------------------------------------------------------------------+
 
 . bv_out tab "T15_hybrid_scenarios"
@@ -4125,7 +4163,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T15_hybrid_scenarios
 . preserve
 
 .         keep if mdate == $final_origin + $H_final
-(20 observations deleted)
+(25 observations deleted)
 
 .         keep scenario mdate median lower80 upper80 lower95 upper95 pct_vs_anchor scen_shift_pct
 
@@ -4136,6 +4174,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T15_hybrid_scenarios
            Adverse   2027m4    19417     18417     20472     17909     21053       7.12       5.19  
             Upside   2027m4    18174     17238     19161     16762     19705       0.26      -1.54  
     Severe Adverse   2027m4    20166     19128     21262     18600     21865      11.25       9.25  
+      Mild Adverse   2027m4    18914     17939     19941     17444     20507       4.34       2.46  
 
 .         bv_out tab "T16_hybrid_summary"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T16_hybrid_summary.csv saved
@@ -4152,25 +4191,26 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T16_hybrid_summary.c
 .         keep scenario mdate cell
 
 .         reshape wide cell, i(mdate) j(scenario)
-(j = 1 2 3 4)
+(j = 1 2 3 4 5)
 
 Data                               Long   ->   Wide
 -----------------------------------------------------------------------------
-Number of observations               24   ->   6           
-Number of variables                   3   ->   5           
-j variable (4 values)          scenario   ->   (dropped)
+Number of observations               30   ->   6           
+Number of variables                   3   ->   6           
+j variable (5 values)          scenario   ->   (dropped)
 xij variables:
-                                   cell   ->   cell1 cell2 ... cell4
+                                   cell   ->   cell1 cell2 ... cell5
 -----------------------------------------------------------------------------
 
 .         gen str12 bulan = string(mdate, "%tmMon_CCYY")
 
 .         sort mdate
 
-.         bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\10_hybrid_table.png") ///
+.         bv_pngtable bulan cell1 cell5 cell2 cell4 cell3, file("$fig\10_hybrid_table.png") ///
 >                 title("Forecast USD/IDR per skenario: median [rentang 80%], anchor `: di %tmMon_CCYY $final_origin' = 
 > `=strtrim(string($anchor_spot, "%9.0fc"))'") ///
->                 heads("Bulan" "Baseline (BMA)" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
+>                 heads("Bulan" "Baseline (BMA)" "Mild Adverse" "Adverse" "Severe Adverse" "Upside") widths(14 22 22 22 
+> 22 22) ///
 >                 note("Baseline = BMA. Skenario = Baseline BMA x (skenario / baseline) BVARX. Rentang = interval predik
 > tif 80% BMA, digeser sesuai skenario.")
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\10_hybrid_table.png saved as PNG format
@@ -4182,19 +4222,19 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\10_hybrid_table.png
 . keep scenario mdate median lower80 upper80 lower95 upper95
 
 . reshape wide median lower80 upper80 lower95 upper95, i(mdate) j(scenario)
-(j = 1 2 3 4)
+(j = 1 2 3 4 5)
 
 Data                               Long   ->   Wide
 -----------------------------------------------------------------------------
-Number of observations               24   ->   6           
-Number of variables                   7   ->   21          
-j variable (4 values)          scenario   ->   (dropped)
+Number of observations               30   ->   6           
+Number of variables                   7   ->   26          
+j variable (5 values)          scenario   ->   (dropped)
 xij variables:
-                                 median   ->   median1 median2 ... median4
-                                lower80   ->   lower801 lower802 ... lower804
-                                upper80   ->   upper801 upper802 ... upper804
-                                lower95   ->   lower951 lower952 ... lower954
-                                upper95   ->   upper951 upper952 ... upper954
+                                 median   ->   median1 median2 ... median5
+                                lower80   ->   lower801 lower802 ... lower805
+                                upper80   ->   upper801 upper802 ... upper805
+                                lower95   ->   lower951 lower952 ... lower955
+                                upper95   ->   upper951 upper952 ... upper955
 -----------------------------------------------------------------------------
 
 . tempfile hw
@@ -4212,9 +4252,10 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000004.tmp saved as .dta forma
 
 . sort mdate
 
-. forval s = 1/4 {
+. forval s = 1/5 {
   2.         replace median`s' = usdidr if mdate == $final_origin
   3. }
+(1 real change made)
 (1 real change made)
 (1 real change made)
 (1 real change made)
@@ -4228,13 +4269,14 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000004.tmp saved as .dta forma
 >         (line median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
 >         (line median2 mdate, lcolor("164 87 23") lwidth(medthick) lpattern(dash)) ///
 >         (line median3 mdate, lcolor("35 114 74") lwidth(medthick) lpattern(shortdash)) ///
->         (line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)), ///
+>         (line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)) ///
+>         (line median5 mdate, lcolor("214 160 30") lwidth(medthick) lpattern(dash_dot)), ///
 >         xline($final_origin, lcolor(gs10) lpattern(dot)) ///
 >         title("USD/IDR: Baseline BMA dan skenario (efek skenario dari BVARX)", size(medium)) ///
 >         subtitle("Band Baseline BMA 80% dan 95%; anchor `anch'", size(small)) ///
 >         xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
->         legend(order(3 "Aktual" 4 "Baseline (BMA)" 5 "Adverse" 6 "Upside" 7 "Severe Adverse" 2 "Band 80%" 1 "Band 95%"
-> ) rows(2) size(small) position(6)) ///
+>         legend(order(3 "Aktual" 4 "Baseline (BMA)" 8 "Mild Adverse" 5 "Adverse" 7 "Severe Adverse" 6 "Upside" 2 "Band 
+> 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
 >         graphregion(color(white)) name(hybrid_fan, replace)
 
 . graph save "$gph\10_hybrid_fan.gph", replace
@@ -4248,7 +4290,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\10_hybrid_fan.png s
 . use "$data\scenario_macro_paths.dta", clear
 
 . keep if inlist(mdate, $final_origin + 3, $final_origin + 6)
-(20 observations deleted)
+(25 observations deleted)
 
 . gen byte hh = mdate - $final_origin
 
@@ -4259,7 +4301,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\10_hybrid_fan.png s
 
 Data                               Long   ->   Wide
 -----------------------------------------------------------------------------
-Number of observations                8   ->   4           
+Number of observations               10   ->   5           
 Number of variables                   5   ->   7           
 j variable (2 values)                hh   ->   (dropped)
 xij variables:
@@ -4278,7 +4320,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000005.tmp saved as .dta forma
 . use "$data\hybrid_scenarios.dta", clear
 
 . keep if inlist(mdate, $final_origin + 3, $final_origin + 6)
-(16 observations deleted)
+(20 observations deleted)
 
 . gen byte hh = mdate - $final_origin
 
@@ -4289,7 +4331,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000005.tmp saved as .dta forma
 
 Data                               Long   ->   Wide
 -----------------------------------------------------------------------------
-Number of observations                8   ->   4           
+Number of observations               10   ->   5           
 Number of variables                   5   ->   7           
 j variable (2 values)                hh   ->   (dropped)
 xij variables:
@@ -4304,7 +4346,7 @@ xij variables:
     Result                      Number of obs
     -----------------------------------------
     Not matched                             0
-    Matched                                 4  
+    Matched                                 5  
     -----------------------------------------
 
 . bv_scenlab
@@ -4324,7 +4366,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\hybrid_summary_table.
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T18_hybrid_scenario_assumptions.csv saved
 
 . gen str24 c1 = ""
-(4 missing values generated)
+(5 missing values generated)
 
 . gen str12 c2 = cond(dxy_pct6 >= 0, "+", "") + strtrim(string(dxy_pct6, "%5.1f")) + "%"
 
@@ -4577,14 +4619,14 @@ end of do-file
 . timer off 1
 
 . timer list 1
-   1:    126.03 /        1 =     126.0280
+   1:    129.65 /        1 =     129.6530
 
 . di "Selesai: `c(current_date)' `c(current_time)'"
-Selesai:  2 Nov 2026 23:35:57
+Selesai:  3 Nov 2026 00:14:20
 
 . log close main
       name:  main
        log:  C:\Users\LENOVO05\github\Simulasi-Rupiah\output\run_log.log
   log type:  text
- closed on:   2 Nov 2026, 23:35:57
+ closed on:   3 Nov 2026, 00:14:20
 ------------------------------------------------------------------------------------------------------------------------

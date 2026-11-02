@@ -4,12 +4,13 @@ Forecast bulanan kurs USD/IDR untuk 6 bulan ke depan, lengkap dengan rentang ket
 skenario makro (Upside, Adverse, Severe Adverse). Diadaptasi dari
 `input/reference/Manual_Model_Rupiah_BVARX.Rmd` dan ditulis ulang di Stata (Mata + `bmaregress`).
 
-Hasil run terakhir (2 Nov 2026, v4.3, data sampai Okt 2026), anchor Okt 2026 = 18.127:
+Hasil run terakhir (3 Nov 2026, v4.4, data sampai Okt 2026), anchor Okt 2026 = 18.127:
 
 | USD/IDR Apr 2027 | Median | Rentang 80% | vs Okt-26 |
 |:--|--:|:--|--:|
 | Baseline | 18.459 | 17.508 – 19.461 | +1,8% |
 | Upside | 18.174 | 17.238 – 19.161 | +0,3% |
+| Mild Adverse | 18.914 | 17.939 – 19.941 | +4,3% |
 | Adverse | 19.417 | 18.417 – 20.472 | +7,1% |
 | Severe Adverse | 20.166 | 19.128 – 21.262 | +11,3% |
 
@@ -85,19 +86,23 @@ kurs bergerak?
    |:--|:--|:--|:--|
    | Baseline | datar | jalur model | jalur model |
    | Upside | −2% | +USD1 bn vs baseline | +Rp10 tn vs baseline (Jan, Apr) |
-   | Adverse | +2% | −USD1 bn | outflow 13,95 / 13,95 / 20,92 / 20,92 / 27,90 / 41,84 (total Rp139,48 tn) |
+   | Mild Adverse | +1% | −USD0,5 bn | outflow 4,96 / 4,96 / 7,44 / 7,44 / 9,92 / 14,87 (total Rp49,58 tn) |
+| Adverse | +2% | −USD1 bn | outflow 13,95 / 13,95 / 20,92 / 20,92 / 27,90 / 41,84 (total Rp139,48 tn) |
    | Severe Adverse | +5% | −USD2 bn | outflow 24,75 / 24,75 / 37,13 / 37,13 / 49,51 / 74,26 (total Rp247,53 tn) |
 
-   DXY dan trade balance mengikuti contoh ilustratif di manual. Outflow Adverse dan Severe Adverse adalah
-   jalur absolut dari pengguna (diisi sebagai angka asli di kolom K sheet skenario). Hasilnya setara
-   kira-kira persentil 90 (Adverse) dan di atas persentil 95 (Severe Adverse) pergerakan rupiah 6 bulanan.
+   Outflow adalah estimasi dampak usulan reklasifikasi MSCI ke Standalone (`Estimasi_Outflow_MSCI_6_Bulan.xlsx`):
+   potensi outflow saham US$7,96 / 14,86 / 21,76 miliar dikurangi dana pasif US$4,5 miliar, 50% dijual dalam
+   6 bulan, ditambah penjualan SBN asing 2% / 5% / 10% dari US$50 miliar = US$2,73 / 7,68 / 13,63 miliar
+   (kurs JISDOR 18.161), dibagi per bulan dengan bobot 10/10/15/15/20/30%. Diisi sebagai angka asli di
+   kolom K sheet skenario. Hasilnya setara kira-kira persentil 75 (Mild Adverse), 90 (Adverse), dan di atas
+   persentil 95 (Severe Adverse) pergerakan rupiah 6 bulanan.
 
    Asumsi ini diisi per bulan di sheet **`scenario_inputs`** pada `input/Database_Rupiah_Bulanan.xlsx`
    (satu baris per skenario × bulan ke-h):
 
    | Kolom | Isi |
    |:--|:--|
-   | `scenario` | Baseline, Adverse, Upside, Severe Adverse (nama tetap) |
+   | `scenario` | Baseline, Adverse, Upside, Severe Adverse, Mild Adverse (nama tetap) |
    | `h` | Bulan ke-h setelah anchor, 1 sampai 6 |
    | `dxy_pct` | DXY kumulatif terhadap bulan anchor (%), wajib diisi |
    | `tb_shift_usdbn` | Trade balance dikunci = median Baseline BVARX + angka ini (USD bn); kosong = tidak dikunci |
@@ -108,7 +113,7 @@ kurs bergerak?
    (median baseline BVARX dari `T9_scenario_paths_all`) dan DXY anchor (sel O4). Rumusnya: geser = target −
    baseline, dan `dxy_pct` = (DXY target ÷ DXY anchor − 1) × 100. Baseline (H, J) dan anchor (O3, O4)
    perlu diperbarui setiap kali data bulan baru masuk.
-   Isi saat ini sama dengan tabel di atas (DXY bergerak geometrik; TB dan flows Upside dikunci di h = 3 dan 6; flows Adverse/Severe di h = 1–6).
+   Isi saat ini sama dengan tabel di atas (DXY bergerak geometrik; TB dan flows Upside dikunci di h = 3 dan 6; flows Mild/Adverse/Severe di h = 1–6).
    Untuk periode baru cukup ubah angka di sheet itu, simpan, lalu jalankan `00_master.do`. Input yang
    dipakai tercatat di `output/tables/T0_scenario_inputs.csv`.
 

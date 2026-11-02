@@ -177,8 +177,9 @@ global H_final 6
 global model_mode "changes"
 * Asumsi skenario per bulan dibaca dari sheet ini di $data_file (06_final_scenarios.do):
 * DXY kumulatif vs anchor (%), geser TB (USD bn) dan flows (Rp tn) terhadap median baseline;
-* sel TB/flows kosong = bulan itu tidak dikunci. Default: Adverse DXY +2%, TB -1, flows -10;
-* Upside kebalikannya; Severe Adverse DXY +5%, TB -2, flows -30 (TB/flows dikunci di h = 3 dan 6).
+* sel TB/flows kosong = bulan itu tidak dikunci. Lima skenario: Baseline, Mild Adverse, Adverse,
+* Severe Adverse (DXY +1/+2/+5%, TB -0,5/-1/-2 di h = 3 dan 6, flows = outflow MSCI absolut tiap bulan:
+* total Rp49,58/139,48/247,53 tn), Upside (DXY -2%, TB +1, flows +10 vs baseline di h = 3 dan 6).
 global scen_sheet "scenario_inputs"
 
 set seed $seed

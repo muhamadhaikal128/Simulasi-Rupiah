@@ -58,9 +58,9 @@ preserve
 	reshape wide cell, i(mdate) j(scenario)
 	gen str12 bulan = string(mdate, "%tmMon_CCYY")
 	sort mdate
-	bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\10_hybrid_table.png") ///
+	bv_pngtable bulan cell1 cell5 cell2 cell4 cell3, file("$fig\10_hybrid_table.png") ///
 		title("Forecast USD/IDR per skenario: median [rentang 80%], anchor `: di %tmMon_CCYY $final_origin' = `=strtrim(string($anchor_spot, "%9.0fc"))'") ///
-		heads("Bulan" "Baseline (BMA)" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
+		heads("Bulan" "Baseline (BMA)" "Mild Adverse" "Adverse" "Severe Adverse" "Upside") widths(14 22 22 22 22 22) ///
 		note("Baseline = BMA. Skenario = Baseline BMA x (skenario / baseline) BVARX. Rentang = interval prediktif 80% BMA, digeser sesuai skenario.")
 restore
 
@@ -73,7 +73,7 @@ use mdate usdidr using "$data\database.dta", clear
 keep if mdate > $final_origin - 24 & mdate <= $final_origin
 append using `hw'
 sort mdate
-forval s = 1/4 {
+forval s = 1/5 {
 	replace median`s' = usdidr if mdate == $final_origin
 }
 local anch : di %tmMon_CCYY $final_origin
@@ -83,12 +83,13 @@ twoway (rarea lower951 upper951 mdate, color("24 90 141%10") lwidth(none)) ///
 	(line median1 mdate, lcolor("24 90 141") lwidth(medthick)) ///
 	(line median2 mdate, lcolor("164 87 23") lwidth(medthick) lpattern(dash)) ///
 	(line median3 mdate, lcolor("35 114 74") lwidth(medthick) lpattern(shortdash)) ///
-	(line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)), ///
+	(line median4 mdate, lcolor("170 30 30") lwidth(medthick) lpattern(longdash)) ///
+	(line median5 mdate, lcolor("214 160 30") lwidth(medthick) lpattern(dash_dot)), ///
 	xline($final_origin, lcolor(gs10) lpattern(dot)) ///
 	title("USD/IDR: Baseline BMA dan skenario (efek skenario dari BVARX)", size(medium)) ///
 	subtitle("Band Baseline BMA 80% dan 95%; anchor `anch'", size(small)) ///
 	xtitle("") ytitle("IDR per USD") xlabel(#8, format(%tmMon_CCYY) labsize(small) angle(30)) ///
-	legend(order(3 "Aktual" 4 "Baseline (BMA)" 5 "Adverse" 6 "Upside" 7 "Severe Adverse" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
+	legend(order(3 "Aktual" 4 "Baseline (BMA)" 8 "Mild Adverse" 5 "Adverse" 7 "Severe Adverse" 6 "Upside" 2 "Band 80%" 1 "Band 95%") rows(2) size(small) position(6)) ///
 	graphregion(color(white)) name(hybrid_fan, replace)
 graph save "$gph\10_hybrid_fan.gph", replace
 graph export "$fig\10_hybrid_fan.png", replace width(1800)
