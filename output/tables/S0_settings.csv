@@ -12,17 +12,17 @@ grid_lambda,0.03 0.05 0.10 0.30
 grid_ust,0
 grid_rate,0
 grid_vix,0
-grid_dum,1
+grid_dum,0
 grid_uip,0 1
 uip_sd,0.05
-best_start,2014
-best_p,2
+best_start,2013
+best_p,1
 best_lambda,.03
 best_ust,0
 best_rate,0
 best_vix,0
-best_dum,1
-best_uip,0
+best_dum,0
+best_uip,1
 outlier_months,2015m10 2018m11 2020m3 2020m4
 H_final,6
 model_mode,changes
@@ -35,4 +35,4 @@ test_origins, 2024m1 -  2026m3
 latest_complete, 2026m9
 final_origin,2026m10
 stata_version,19.5 MP
-run_date, 3 Nov 2026 00:13:23
+run_date, 3 Nov 2026 00:56:49

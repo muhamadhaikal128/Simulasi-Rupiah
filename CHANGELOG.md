@@ -243,8 +243,7 @@ Hasil run v3, 30 Okt 2026 14:53 (spesifikasi: start 2013, lag 2, lambda 0,1; N =
 - Skenario: flows Adverse dan Severe Adverse dikunci pada outflow absolut setiap bulan (input pengguna):
   13,95 / 13,95 / 20,92 / 20,92 / 27,90 / 41,84 (total 139,48) dan 24,75 / 24,75 / 37,13 / 37,13 / 49,51 /
   74,26 (total 247,53). DXY (+2%, +5%, −2%) dan TB (−1, −2, +1 di h = 3 dan 6) tetap; Upside tidak diubah.
--  0_master.do: 
-_final standard 6.000 → 10.000 (ESS Severe Adverse 0,09 = 927 draw efektif).
+- `00_master.do`: `n_final` standard 6.000 → 10.000 (ESS Severe Adverse 0,09 = 927 draw efektif).
 - Hasil: BMA test 0,979 / 0,926 / 0,848 (27 forecast), Clark-West p 0,17 / 0,040 / 0,016, coverage 80%
   0,93 / 0,85 / 0,81. USD/IDR Apr 2027: Baseline 18.459 [17.508–19.461], Upside 18.174, Adverse 19.417,
   Severe Adverse 20.166 [19.128–21.262] (+5,2% dan +9,3% di atas baseline).
@@ -256,12 +255,12 @@ _final standard 6.000 → 10.000 (ESS Severe Adverse 0,09 = 927 draw efektif).
 
 - Skenario kelima **Mild Adverse** (kode 5): DXY +1%, TB −0,5 vs baseline (h = 3, 6), outflow tiap bulan
   4,96 / 4,96 / 7,44 / 7,44 / 9,92 / 14,87 (total Rp49,58 tn). Kode skenario 1–4 tidak berubah.
-- Kode:  2 (loop skenario sampai 5),  6 dan 10 (validasi nama dan jumlah baris, label, jalur DXY
+- Kode: 02 (loop skenario sampai 5), 06 dan 10 (validasi nama dan jumlah baris, label, jalur DXY
   dxy_mild, fan chart, grafik makro, tabel PNG berurutan Baseline → Mild → Adverse → Severe → Upside).
   Sheet scenario_inputs: 30 baris (5 skenario × 6 bulan).
 - Asal outflow (Estimasi_Outflow_MSCI_6_Bulan.xlsx, berbasis DEN_MSCI.pptx 19 Okt 2026): potensi saham
-  Standalone 7,96 / 14,86 / 21,76 − pasif 4,5, × 50% dalam 6 bulan, + SBN 2/5/10% dari US miliar =
-  US,73 / 7,68 / 13,63 miliar × JISDOR 18.161; bobot bulanan 10/10/15/15/20/30%.
+  Standalone 7,96 / 14,86 / 21,76 − pasif 4,5, × 50% dalam 6 bulan, + SBN 2/5/10% dari US$50 miliar =
+  US$2,73 / 7,68 / 13,63 miliar × JISDOR 18.161; bobot bulanan 10/10/15/15/20/30%.
 - Hasil Apr 2027: Mild Adverse 18.914 [17.939–19.941] (+2,5% vs baseline, ESS 0,76). Empat skenario lain
   identik dengan v4.3 (seed sama).
 - Manual: Mild Adverse di Tabel 1.2, 6.2, 7.1, 7.4, 7.5 dan Bab 9 (Tabel 9.3 baru; nomor tabel 9.x
@@ -269,3 +268,23 @@ _final standard 6.000 → 10.000 (ESS Severe Adverse 0,09 = 927 draw efektif).
 - Deck baru output/Simulasi_Rupiah_Ringkas_v2.pptx (24 slide, urutan: tujuan → konsep → skenario dan
   logika outflow → BMA → BVARX → hasil gabungan → evaluasi, diagnostik, treatment). Deck lengkap lama
   (Simulasi_Rupiah_BMA_BVARX.pptx) belum memuat Mild Adverse.
+
+## v4.5 — 3 Nov 2026: BVARX tanpa dummy outlier
+
+- `00_master.do`: `grid_dum` 1 → 0. BVARX hanya dipakai untuk efek skenario (stress test), sehingga bulan
+  krisis (Okt-15, Nov-18, Mar-20, Apr-20) harus ikut membentuk koefisien dan residual correlation.
+- Uji scratchpad pada spesifikasi lama (2014, lag 2, λ 0,03): residual correlation flows–kurs −0,36 → −0,44;
+  Severe Adverse Apr 2027 20.166 → 20.784; test relative RMSE 1,04 / 1,02 / 0,96 → 1,09 / 1,06 / 0,95;
+  coverage 80% test 0,81 / 0,74 / 0,70 → 0,93 / 0,81 / 0,93.
+- Validation diulang tanpa dummy dan memilih awal 2013, lag 1, λ 0,03, prior UIP (skor 0,978; terbaik tanpa
+  UIP 1,003). Selisih BI–Fed masuk sebagai eksogen di keempat persamaan, koefisien persamaan kurs berpusat
+  di 1/12; ke depan dibuat datar di nilai terakhir. Sampel training Mar 2013 – Sep 2026 (163 bulan).
+- Sheet scenario_inputs: H/J baseline diperbarui dari T9 run baru; K absolut Mild/Adverse/Severe tetap,
+  I dan K Upside dihitung ulang agar geserannya tetap.
+- Hasil: residual correlation flows–kurs −0,42, cadangan–kurs −0,39, flows–cadangan +0,48; efek +1% DXY
+  ke kurs +0,35% (0,20–0,50). BVARX test 1,11 / 1,12 / 1,05 (interval bootstrap memuat 1), coverage 80%
+  0,93 / 0,81 / 0,93; ESS Severe Adverse 0,18. USD/IDR Apr 2027: Baseline 18.459 (BMA, tidak berubah),
+  Upside 18.170, Mild Adverse 19.093, Adverse 19.790, Severe Adverse 20.774 [19.704–21.903]
+  (+3,4%, +7,2%, +12,5% vs baseline).
+- Deck ringkas v2 diperbarui. Manual (docx/pdf), deck lengkap, dan README belum diperbarui ke v4.5.
+- Perbaikan teks entri v4.3 dan v4.4 yang rusak saat ditulis lewat PowerShell.

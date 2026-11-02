@@ -155,10 +155,13 @@ global grid_lambda "0.03 0.05 0.10 0.30"
 global grid_ust "0"
 * selisih suku bunga ditolak validation di v3.3 dan v3.4 -> 0 untuk menghemat waktu
 global grid_rate "0"
-* VIX dan dummy ditetapkan dari hasil v3.5 (dummy terpilih; VIX tidak terpilih bersama dummy)
+* VIX ditetapkan dari hasil v3.5 (tidak terpilih)
 global grid_vix "0"
-* Impulse dummy bulan ekstrem (|perubahan kurs| > 2,5 sd): 1 di bulan itu, 0 lainnya; dipilih validation
-global grid_dum "1"
+* Impulse dummy outlier (|perubahan kurs| > 2,5 sd: Okt-15, Nov-18, Mar-20, Apr-20). Sejak v4.5 = 0:
+* BVARX hanya dipakai untuk efek skenario (stress test), sehingga bulan krisis harus ikut membentuk
+* residual correlation flows-kurs (-0,36 -> -0,44). Uji 3 Nov 2026: dengan dummy forecast titik lebih
+* akurat, tanpa dummy coverage 80% lebih tepat (test 0,93 / 0,81 / 0,93 vs 0,81 / 0,74 / 0,70).
+global grid_dum "0"
 * Prior UIP: selisih BI-Fed masuk persamaan kurs dengan koefisien berpusat di 1/12 (depresiasi = selisih
 * suku bunga per bulan); 0/1 dipilih validation. uip_sd = sd prior (satuan terstandar)
 global grid_uip "0 1"
