@@ -2,10 +2,10 @@
       name:  main
        log:  C:\Users\LENOVO05\github\Simulasi-Rupiah\output\run_log.log
   log type:  text
- opened on:   2 Nov 2026, 13:11:43
+ opened on:   2 Nov 2026, 23:33:51
 
 . di "Mulai: `c(current_date)' `c(current_time)'  profile=$profile"
-Mulai:  2 Nov 2026 13:11:43  profile=standard
+Mulai:  2 Nov 2026 23:33:51  profile=standard
 
 . timer clear 1
 
@@ -52,7 +52,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/A0_rating_events.csv
 
 . 
 . import excel using "$data_file", sheet("flow_components") firstrow clear
-(8 vars, 165 obs)
+(8 vars, 166 obs)
 
 . sort year month
 
@@ -62,7 +62,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\flow_components.dta s
 . 
 . **## 1.2 Sheet database_monthly dan pemeriksaan struktur
 . import excel using "$data_file", sheet("database_monthly") firstrow clear
-(28 vars, 165 obs)
+(28 vars, 166 obs)
 
 . foreach v in year month mdate usdidr trade_bal_usdbn net_flows_idrtn fx_reserves_usdbn dxy ust10y_pct core_complete {
   2.         confirm numeric variable `v'
@@ -91,7 +91,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\flow_components.dta s
 
 . tsset mdate, monthly
 
-Time variable: mdate, 2013m1 to 2026m9
+Time variable: mdate, 2013m1 to 2026m10
         Delta: 1 month
 
 . 
@@ -116,7 +116,7 @@ Time variable: mdate, 2013m1 to 2026m9
     Result                      Number of obs
     -----------------------------------------
     Not matched                             0
-    Matched                               165  
+    Matched                               166  
     -----------------------------------------
 
 . sort mdate
@@ -147,10 +147,11 @@ Time variable: mdate, 2013m1 to 2026m9
 
 .         list, noobs clean
 
-           variable   missing  
-    trade_bal_usdbn         1  
-      exports_usdbn         1  
-      imports_usdbn         1  
+             variable   missing  
+      trade_bal_usdbn         1  
+    fx_reserves_usdbn         1  
+        exports_usdbn         1  
+        imports_usdbn         1  
 
 .         bv_out diag "D1_audit_missing"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D1_audit_missing.csv saved
@@ -168,7 +169,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D1_audit_missin
 . global final_origin = r(max)
 
 . di "Bulan lengkap terakhir: " %tm $latest_complete "   anchor pasar terakhir: " %tm $final_origin
-Bulan lengkap terakhir:  2026m8   anchor pasar terakhir:  2026m9
+Bulan lengkap terakhir:  2026m9   anchor pasar terakhir: 2026m10
 
 . 
 . **## 1.3 Transformasi model (Rmd: make_data)
@@ -181,6 +182,7 @@ Bulan lengkap terakhir:  2026m8   anchor pasar terakhir:  2026m9
 . gen double y_flows = net_flows_idrtn/10
 
 . gen double y_res   = 100*ln(fx_reserves_usdbn)
+(1 missing value generated)
 
 . gen double x_dxy   = 100*ln(dxy)
 
@@ -189,7 +191,7 @@ Bulan lengkap terakhir:  2026m8   anchor pasar terakhir:  2026m9
 (1 missing value generated)
 
 . gen double dy_res  = D.y_res
-(1 missing value generated)
+(2 missing values generated)
 
 . gen double dx_dxy  = D.x_dxy
 (1 missing value generated)
@@ -248,11 +250,11 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\database.dta saved
 .         list, noobs clean
 
              variable     n       mean         sd         min        max  
-               usdidr   165   14219.34    1735.14        9664      18000  
-      trade_bal_usdbn   164   1.450809   1.949667     -2.3311     7.5785  
-      net_flows_idrtn   165   5.517091   26.78869   -120.0208   82.60049  
+               usdidr   166   14242.88   1756.261        9664      18127  
+      trade_bal_usdbn   165    1.46238   1.949389     -2.3311     7.5785  
+      net_flows_idrtn   166   5.380499   26.76531   -120.0208   82.60049  
     fx_reserves_usdbn   165   117.2237   13.00517    85.91298    140.338  
-                  dxy   165   96.06127    7.28911      79.207    112.117  
+                  dxy   166   96.09632   7.281003      79.207    112.117  
 
 .         bv_out tab "T1_descriptive"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T1_descriptive.csv saved
@@ -293,7 +295,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\1_data_series.png s
 (13 observations deleted)
 .         tsset mdate, monthly
 
-Time variable: mdate, 2014m1 to 2026m8
+Time variable: mdate, 2014m1 to 2026m9
         Delta: 1 month
 .         gen double l_usdidr = ln(usdidr)
 .         gen double l_res = ln(fx_reserves_usdbn)
@@ -369,21 +371,21 @@ Unit root: flows (drift)
 
         series     det   lags     N   adf_tau   adf_p      pp_z    pp_p   rc               adf_conclusion               
 >  pp_conclusion  
-      l_usdidr   trend      0   151    -3.782   0.018    -3.695   0.023    0         stasioner (tolak H0)         stasio
+      l_usdidr   trend      0   152    -3.736   0.020    -3.640   0.027    0         stasioner (tolak H0)         stasio
 > ner (tolak H0)  
-    d_l_usdidr   drift      0   150   -13.321   0.000   -13.833   0.000    0         stasioner (tolak H0)         stasio
+    d_l_usdidr   drift      0   151   -13.405   0.000   -13.932   0.000    0         stasioner (tolak H0)         stasio
 > ner (tolak H0)  
-         l_res   trend      0   151    -2.644   0.260    -2.799   0.197    0   unit root (gagal tolak H0)   unit root (g
+         l_res   trend      0   152    -2.663   0.252    -2.813   0.192    0   unit root (gagal tolak H0)   unit root (g
 > agal tolak H0)  
-       d_l_res   drift      0   150   -11.814   0.000   -11.808   0.000    0         stasioner (tolak H0)         stasio
+       d_l_res   drift      0   151   -11.855   0.000   -11.848   0.000    0         stasioner (tolak H0)         stasio
 > ner (tolak H0)  
-         l_dxy   trend      0   151    -2.714   0.230    -2.855   0.177    0   unit root (gagal tolak H0)   unit root (g
+         l_dxy   trend      0   152    -2.792   0.200    -2.931   0.152    0   unit root (gagal tolak H0)   unit root (g
 > agal tolak H0)  
-       d_l_dxy   drift      0   150   -11.445   0.000   -11.447   0.000    0         stasioner (tolak H0)         stasio
+       d_l_dxy   drift      0   151   -11.476   0.000   -11.479   0.000    0         stasioner (tolak H0)         stasio
 > ner (tolak H0)  
-            tb   drift      1   150    -3.281   0.001    -5.096   0.000    0         stasioner (tolak H0)         stasio
+            tb   drift      1   151    -3.266   0.001    -5.107   0.000    0         stasioner (tolak H0)         stasio
 > ner (tolak H0)  
-         flows   drift      0   151   -10.332   0.000   -10.418   0.000    0         stasioner (tolak H0)         stasio
+         flows   drift      0   152   -10.403   0.000   -10.481   0.000    0         stasioner (tolak H0)         stasio
 > ner (tolak H0)  
 .         bv_out diag "D2_unit_root"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D2_unit_root.csv saved
@@ -1560,7 +1562,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T3_test_forecasts.cs
 . qui levelsof origin
 
 . di "Origin test: " %tm $test_from " sampai " %tm $test_to "; jumlah origin per horizon: `r(r)'"
-Origin test:  2024m1 sampai  2026m2; jumlah origin per horizon: 26
+Origin test:  2024m1 sampai  2026m3; jumlah origin per horizon: 27
 
 . 
 . **## 4.1 Skor per horizon
@@ -1574,26 +1576,26 @@ Origin test:  2024m1 sampai  2026m2; jumlah origin per horizon: 26
 
   +--------------------------------------------------------------------------------------------------------------+
   | horizon |  n | rmse_b~r | rmse_rw | relati~e | mae_bvar | mae_rw | log_rm~r | log_rm~w | direct~y | cover~80 |
-  |       1 | 26 |    270.6 |   257.4 |    1.051 |    188.2 |  180.7 |      1.7 |      1.6 |    0.423 |    0.808 |
+  |       1 | 27 |    271.2 |   261.8 |    1.036 |    191.8 |  187.3 |      1.7 |      1.6 |    0.444 |    0.815 |
   |--------------------------------------------------------------------------------------------------------------|
   |      cover~95       |      cov~0_rw       |      cov~5_rw       |       width80       |       min_es~o       |
-  |         0.923       |         0.923       |         0.962       |         651.2       |          0.336       |
+  |         0.926       |         0.926       |         0.963       |         651.4       |          0.336       |
   +--------------------------------------------------------------------------------------------------------------+
 
   +--------------------------------------------------------------------------------------------------------------+
   | horizon |  n | rmse_b~r | rmse_rw | relati~e | mae_bvar | mae_rw | log_rm~r | log_rm~w | direct~y | cover~80 |
-  |       3 | 26 |    567.2 |   544.3 |    1.042 |    449.4 |  445.2 |      3.5 |      3.4 |    0.538 |    0.769 |
+  |       3 | 27 |    574.7 |   560.8 |    1.025 |    460.3 |  461.5 |      3.5 |      3.4 |    0.556 |    0.741 |
   |--------------------------------------------------------------------------------------------------------------|
   |      cover~95       |      cov~0_rw       |      cov~5_rw       |       width80       |       min_es~o       |
-  |         0.808       |         0.885       |         1.000       |        1182.2       |          0.336       |
+  |         0.815       |         0.889       |         1.000       |        1182.3       |          0.336       |
   +--------------------------------------------------------------------------------------------------------------+
 
   +--------------------------------------------------------------------------------------------------------------+
   | horizon |  n | rmse_b~r | rmse_rw | relati~e | mae_bvar | mae_rw | log_rm~r | log_rm~w | direct~y | cover~80 |
-  |       6 | 26 |    671.3 |   683.8 |    0.982 |    534.8 |  546.2 |      4.1 |      4.1 |    0.731 |    0.692 |
+  |       6 | 27 |    667.4 |   691.9 |    0.965 |    535.7 |  558.4 |      4.1 |      4.2 |    0.741 |    0.704 |
   |--------------------------------------------------------------------------------------------------------------|
   |      cover~95       |      cov~0_rw       |      cov~5_rw       |       width80       |       min_es~o       |
-  |         0.962       |         0.962       |         1.000       |        1680.0       |          0.336       |
+  |         0.963       |         0.963       |         1.000       |        1682.5       |          0.336       |
   +--------------------------------------------------------------------------------------------------------------+
 
 . save "$data\test_scores.dta", replace
@@ -1620,9 +1622,9 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T4_test_scores.csv s
   8.                 post `pb' (`h') (`b') (`lo') (`hi')
   9.         }
  10. }
-(52 observations deleted)
-(52 observations deleted)
-(52 observations deleted)
+(54 observations deleted)
+(54 observations deleted)
+(54 observations deleted)
 
 . postclose `pb'
 
@@ -1646,15 +1648,15 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T4_test_scores.csv s
 . list, noobs clean
 
     horizon   block   relati~e   lower   upper   covers~e  
-          1       3      1.051   0.938   1.116          1  
-          1       6      1.051   0.921   1.098          1  
-          1      12      1.051   0.934   1.092          1  
-          3       3      1.042   0.890   1.170          1  
-          3       6      1.042   0.858   1.153          1  
-          3      12      1.042   0.858   1.125          1  
-          6       3      0.982   0.831   1.237          1  
-          6       6      0.982   0.804   1.236          1  
-          6      12      0.982   0.794   1.135          1  
+          1       3      1.036   0.913   1.109          1  
+          1       6      1.036   0.880   1.095          1  
+          1      12      1.036   0.886   1.084          1  
+          3       3      1.025   0.877   1.169          1  
+          3       6      1.025   0.854   1.146          1  
+          3      12      1.025   0.846   1.127          1  
+          6       3      0.965   0.809   1.217          1  
+          6       6      0.965   0.788   1.220          1  
+          6      12      0.965   0.776   1.144          1  
 
 . save "$data\test_bootstrap.dta", replace
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\test_bootstrap.dta saved
@@ -1693,7 +1695,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000003.tmp saved as .dta forma
     Result                      Number of obs
     -----------------------------------------
     Not matched                             0
-    Matched                                78  
+    Matched                                81  
     -----------------------------------------
 
 . append using `bv'
@@ -1709,9 +1711,9 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000003.tmp saved as .dta forma
   +------------------------------------------------------------------------------------------------------+
   |     period   horizon    n   rmse_rw   rmse_b~r   rmse_rwd   rmse_c~o   rel_bvar   rel_rwd   rel_co~o |
   |------------------------------------------------------------------------------------------------------|
-  |       test         1   26     257.4      270.6      254.9      261.9      1.051     0.990      1.017 |
-  |       test         3   26     544.3      567.2      530.8      546.2      1.042     0.975      1.004 |
-  |       test         6   26     683.8      671.3      640.3      649.7      0.982     0.936      0.950 |
+  |       test         1   27     261.8      271.2      258.7      264.0      1.036     0.988      1.008 |
+  |       test         3   27     560.8      574.7      545.3      557.2      1.025     0.973      0.994 |
+  |       test         6   27     691.9      667.4      646.0      650.4      0.965     0.934      0.940 |
   |------------------------------------------------------------------------------------------------------|
   | validation         1   30     220.5      216.9      217.4      215.7      0.984     0.986      0.979 |
   | validation         3   30     366.2      341.2      357.3      344.3      0.932     0.976      0.940 |
@@ -1742,13 +1744,13 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T6_benchmarks.csv sa
   5.         graph save "$gph\4_test_h`h'.gph", replace
   6.         graph export "$fig_bvarx\4_test_h`h'.png", replace width(1800)
   7. }
-(52 observations deleted)
+(54 observations deleted)
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\4_test_h1.gph saved
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\4_test_h1.png saved as PNG format
-(52 observations deleted)
+(54 observations deleted)
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\4_test_h3.gph saved
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\4_test_h3.png saved as PNG format
-(52 observations deleted)
+(54 observations deleted)
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\gph\4_test_h6.gph saved
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\4_test_h6.png saved as PNG format
 
@@ -1888,44 +1890,42 @@ end of do-file
 
 . list, noobs sepby(code)
 
-  +-------------------------------------------------------------------------------+
-  |           code         scenario   h     mdate   dxy_pct   tb_shi~n   flows_~n |
-  |-------------------------------------------------------------------------------|
-  |       Baseline         Baseline   1   2026m10      0.00          .          . |
-  |       Baseline         Baseline   2   2026m11      0.00          .          . |
-  |       Baseline         Baseline   3   2026m12      0.00          .          . |
-  |       Baseline         Baseline   4    2027m1      0.00          .          . |
-  |       Baseline         Baseline   5    2027m2      0.00          .          . |
-  |       Baseline         Baseline   6    2027m3      0.00          .          . |
-  |-------------------------------------------------------------------------------|
-  |        Adverse          Adverse   1   2026m10      0.33          .          . |
-  |        Adverse          Adverse   2   2026m11      0.66          .          . |
-  |        Adverse          Adverse   3   2026m12      1.00         -1        -10 |
-  |        Adverse          Adverse   4    2027m1      1.33          .          . |
-  |        Adverse          Adverse   5    2027m2      1.66          .          . |
-  |        Adverse          Adverse   6    2027m3      2.00         -1        -10 |
-  |-------------------------------------------------------------------------------|
-  |         Upside           Upside   1   2026m10     -0.34          .          . |
-  |         Upside           Upside   2   2026m11     -0.67          .          . |
-  |         Upside           Upside   3   2026m12     -1.01          1         10 |
-  |         Upside           Upside   4    2027m1     -1.34          .          . |
-  |         Upside           Upside   5    2027m2     -1.67          .          . |
-  |         Upside           Upside   6    2027m3     -2.00          1         10 |
-  |-------------------------------------------------------------------------------|
-  | Severe Adverse   Severe Adverse   1   2026m10      0.82          .          . |
-  | Severe Adverse   Severe Adverse   2   2026m11      1.64          .          . |
-  | Severe Adverse   Severe Adverse   3   2026m12      2.47         -2        -30 |
-  | Severe Adverse   Severe Adverse   4    2027m1      3.31          .          . |
-  | Severe Adverse   Severe Adverse   5    2027m2      4.15          .          . |
-  | Severe Adverse   Severe Adverse   6    2027m3      5.00         -2        -30 |
-  +-------------------------------------------------------------------------------+
+  +---------------------------------------------------------------------------------+
+  |           code         scenario   h     mdate   dxy_pct   tb_shi~n   flows_sh~n |
+  |---------------------------------------------------------------------------------|
+  |       Baseline         Baseline   1   2026m11      0.00          .            . |
+  |       Baseline         Baseline   2   2026m12      0.00          .            . |
+  |       Baseline         Baseline   3    2027m1      0.00          .            . |
+  |       Baseline         Baseline   4    2027m2      0.00          .            . |
+  |       Baseline         Baseline   5    2027m3      0.00          .            . |
+  |       Baseline         Baseline   6    2027m4      0.00          .            . |
+  |---------------------------------------------------------------------------------|
+  |        Adverse          Adverse   1   2026m11      0.33          .   -16.854909 |
+  |        Adverse          Adverse   2   2026m12      0.66          .   -21.698041 |
+  |        Adverse          Adverse   3    2027m1      1.00         -1   -31.037175 |
+  |        Adverse          Adverse   4    2027m2      1.33          .   -28.598233 |
+  |        Adverse          Adverse   5    2027m3      1.66          .   -32.876902 |
+  |        Adverse          Adverse   6    2027m4      2.00         -1   -47.473109 |
+  |---------------------------------------------------------------------------------|
+  |         Upside           Upside   1   2026m11     -0.34          .            . |
+  |         Upside           Upside   2   2026m12     -0.67          .            . |
+  |         Upside           Upside   3    2027m1     -1.01          1           10 |
+  |         Upside           Upside   4    2027m2     -1.34          .            . |
+  |         Upside           Upside   5    2027m3     -1.67          .            . |
+  |         Upside           Upside   6    2027m4     -2.00          1           10 |
+  |---------------------------------------------------------------------------------|
+  | Severe Adverse   Severe Adverse   1   2026m11      0.82          .   -27.654909 |
+  | Severe Adverse   Severe Adverse   2   2026m12      1.64          .   -32.498041 |
+  | Severe Adverse   Severe Adverse   3    2027m1      2.47         -2   -47.247175 |
+  | Severe Adverse   Severe Adverse   4    2027m2      3.31          .   -44.808233 |
+  | Severe Adverse   Severe Adverse   5    2027m3      4.15          .   -54.486902 |
+  | Severe Adverse   Severe Adverse   6    2027m4      5.00         -2   -79.893109 |
+  +---------------------------------------------------------------------------------+
 
 . save "$data\scenario_inputs_used.dta", replace
-(file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_inputs_used.dta not found)
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_inputs_used.dta saved
 
 . bv_out tab "T0_scenario_inputs"
-(file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T0_scenario_inputs.csv not found)
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T0_scenario_inputs.csv saved
 
 . 
@@ -1940,7 +1940,7 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T0_scenario_inputs.c
 . mata: st_global("fin_n", strofreal(FIN_info[1])); st_global("fin_from", strofreal(FIN_info[2]))
 
 . di "Training akhir: " %tm $fin_from " sampai " %tm $latest_complete "; N = $fin_n"
-Training akhir:  2014m1 sampai  2026m8; N = 152
+Training akhir:  2014m1 sampai  2026m9; N = 153
 
 . 
 . * label skenario
@@ -1959,7 +1959,7 @@ Training akhir:  2014m1 sampai  2026m8; N = 152
 
 . tsset mdate, monthly
 
-Time variable: mdate, 2014m1 to 2026m8
+Time variable: mdate, 2014m1 to 2026m9
         Delta: 1 month
 
 . save "$data\final_residuals.dta", replace
@@ -2009,10 +2009,10 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\final_residuals.dta s
 .         list, noobs clean
 
      equation     N      sd   lb_q12   lb_p12   sk_ske~p   sk_kur~p   sk_joi~p                   lb_conclusion  
-        res_s   152   1.496    6.266    0.902      0.451      0.040      0.090    tidak ada bukti autokorelasi  
-       res_tb   152   1.367   51.554    0.000      0.524      0.140      0.269   autokorelasi tersisa (p<0.05)  
-    res_flows   152   2.371   22.788    0.030      0.556      0.108      0.226   autokorelasi tersisa (p<0.05)  
-      res_res   152   1.913    6.823    0.869      0.699      0.820      0.904    tidak ada bukti autokorelasi  
+        res_s   153   1.492    6.312    0.900      0.467      0.037      0.085    tidak ada bukti autokorelasi  
+       res_tb   153   1.362   51.843    0.000      0.522      0.129      0.252   autokorelasi tersisa (p<0.05)  
+    res_flows   153   2.363   22.853    0.029      0.539      0.101      0.211   autokorelasi tersisa (p<0.05)  
+      res_res   153   1.909    6.880    0.865      0.689      0.804      0.895    tidak ada bukti autokorelasi  
 
 .         bv_out diag "D3_residual_tests"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D3_residual_tests.csv saved
@@ -2055,10 +2055,10 @@ Number of observations (_N) was 0, now 4.
 .         list, noobs clean
 
      variable    res_s   res_tb   res_fl~s   res_res  
-        res_s    1.000   -0.139     -0.362    -0.300  
-       res_tb   -0.139    1.000     -0.008    -0.001  
-    res_flows   -0.362   -0.008      1.000     0.429  
-      res_res   -0.300   -0.001      0.429     1.000  
+        res_s    1.000   -0.139     -0.362    -0.301  
+       res_tb   -0.139    1.000     -0.009    -0.001  
+    res_flows   -0.362   -0.009      1.000     0.428  
+      res_res   -0.301   -0.001      0.428     1.000  
 
 .         bv_out diag "D4_residual_corr"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D4_residual_corr.csv saved
@@ -2125,33 +2125,33 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_spot.dta sav
   +-----------------------------------------------------------------------------+
   |       scenario     mdate   lower80   median   upper80   pct_vs~r   ess_ra~o |
   |-----------------------------------------------------------------------------|
-  |       Baseline   2026m10     17604    17951     18306       0.45       0.97 |
-  |       Baseline   2026m11     17511    18001     18504       0.73       0.97 |
-  |       Baseline   2026m12     17407    18002     18633       0.74       0.97 |
-  |       Baseline    2027m1     17276    17980     18757       0.61       0.97 |
-  |       Baseline    2027m2     17226    18010     18874       0.78       0.97 |
-  |       Baseline    2027m3     17204    18073     19028       1.14       0.97 |
+  |       Baseline   2026m11     17835    18178     18531       0.28       0.98 |
+  |       Baseline   2026m12     17678    18178     18701       0.28       0.98 |
+  |       Baseline    2027m1     17558    18174     18809       0.26       0.98 |
+  |       Baseline    2027m2     17472    18181     18936       0.30       0.98 |
+  |       Baseline    2027m3     17459    18264     19100       0.76       0.98 |
+  |       Baseline    2027m4     17475    18360     19282       1.29       0.98 |
   |-----------------------------------------------------------------------------|
-  |        Adverse   2026m10     17644    17983     18340       0.63       0.90 |
-  |        Adverse   2026m11     17583    18061     18568       1.07       0.90 |
-  |        Adverse   2026m12     17577    18129     18747       1.45       0.90 |
-  |        Adverse    2027m1     17452    18141     18871       1.52       0.90 |
-  |        Adverse    2027m2     17416    18198     19028       1.84       0.90 |
-  |        Adverse    2027m3     17495    18340     19249       2.63       0.90 |
+  |        Adverse   2026m11     17959    18268     18600       0.78       0.49 |
+  |        Adverse   2026m12     17930    18410     18878       1.56       0.49 |
+  |        Adverse    2027m1     17988    18562     19157       2.40       0.49 |
+  |        Adverse    2027m2     18038    18716     19419       3.25       0.49 |
+  |        Adverse    2027m3     18179    18961     19748       4.60       0.49 |
+  |        Adverse    2027m4     18413    19314     20205       6.55       0.49 |
   |-----------------------------------------------------------------------------|
-  |         Upside   2026m10     17578    17921     18286       0.29       0.90 |
-  |         Upside   2026m11     17448    17934     18450       0.36       0.90 |
-  |         Upside   2026m12     17270    17848     18474      -0.12       0.90 |
-  |         Upside    2027m1     17133    17802     18547      -0.38       0.90 |
-  |         Upside    2027m2     17033    17802     18625      -0.38       0.90 |
-  |         Upside    2027m3     16977    17803     18706      -0.38       0.90 |
+  |         Upside   2026m11     17801    18149     18505       0.12       0.92 |
+  |         Upside   2026m12     17606    18117     18634      -0.06       0.92 |
+  |         Upside    2027m1     17428    18032     18643      -0.52       0.92 |
+  |         Upside    2027m2     17306    18014     18746      -0.62       0.92 |
+  |         Upside    2027m3     17265    18056     18859      -0.39       0.92 |
+  |         Upside    2027m4     17229    18077     18953      -0.27       0.92 |
   |-----------------------------------------------------------------------------|
-  | Severe Adverse   2026m10     17685    18026     18363       0.87       0.79 |
-  | Severe Adverse   2026m11     17669    18157     18657       1.61       0.79 |
-  | Severe Adverse   2026m12     17769    18368     18963       2.78       0.79 |
-  | Severe Adverse    2027m1     17742    18413     19170       3.04       0.79 |
-  | Severe Adverse    2027m2     17724    18522     19378       3.65       0.79 |
-  | Severe Adverse    2027m3     17920    18806     19733       5.24       0.79 |
+  | Severe Adverse   2026m11     18057    18362     18699       1.30       0.09 |
+  | Severe Adverse   2026m12     18077    18571     19075       2.45       0.09 |
+  | Severe Adverse    2027m1     18259    18871     19471       4.10       0.09 |
+  | Severe Adverse    2027m2     18403    19128     19881       5.52       0.09 |
+  | Severe Adverse    2027m3     18684    19507     20346       7.61       0.09 |
+  | Severe Adverse    2027m4     19101    20059     21074      10.66       0.09 |
   +-----------------------------------------------------------------------------+
 
 . bv_out tab "T8_scenarios"
@@ -2205,24 +2205,31 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_conditions.d
   +---------------------------------------------------------------------------------+
   |       scenario   step     mdate   variable   value_mo~l   var_name   value_na~l |
   |---------------------------------------------------------------------------------|
-  |         bridge      1    2026m9          1     .8429384        y_s     .8429384 |
-  |         bridge      1    2026m9          3   -1.2099099    y_flows   -12.099099 |
-  |         bridge      1    2026m9          4    .41558582      y_res    .41558582 |
+  |         bridge      1   2026m10          1     1.427921        y_s     1.427921 |
+  |         bridge      1   2026m10          3    -1.715717    y_flows    -17.15717 |
   |---------------------------------------------------------------------------------|
-  |        Adverse      4   2026m12          2    .61903682       y_tb    .61903682 |
-  |        Adverse      4   2026m12          3   -.06236624    y_flows   -.62366237 |
-  |        Adverse      7    2027m3          2    .97385458       y_tb    .97385458 |
-  |        Adverse      7    2027m3          3   -.54563366    y_flows   -5.4563366 |
+  |        Adverse      2   2026m11          3       -1.395    y_flows       -13.95 |
+  |        Adverse      3   2026m12          3       -1.395    y_flows       -13.95 |
+  |        Adverse      4    2027m1          2    .62714601       y_tb    .62714601 |
+  |        Adverse      4    2027m1          3       -2.092    y_flows       -20.92 |
+  |        Adverse      5    2027m2          3       -2.092    y_flows       -20.92 |
+  |        Adverse      6    2027m3          3        -2.79    y_flows        -27.9 |
+  |        Adverse      7    2027m4          2    .71719034       y_tb    .71719034 |
+  |        Adverse      7    2027m4          3       -4.184    y_flows       -41.84 |
   |---------------------------------------------------------------------------------|
-  |         Upside      4   2026m12          2    2.6190368       y_tb    2.6190368 |
-  |         Upside      4   2026m12          3    1.9376338    y_flows    19.376338 |
-  |         Upside      7    2027m3          2    2.9738546       y_tb    2.9738546 |
-  |         Upside      7    2027m3          3    1.4543663    y_flows    14.543663 |
+  |         Upside      4    2027m1          2     2.627146       y_tb     2.627146 |
+  |         Upside      4    2027m1          3    2.0117175    y_flows    20.117175 |
+  |         Upside      7    2027m4          2    2.7171903       y_tb    2.7171903 |
+  |         Upside      7    2027m4          3    1.5633109    y_flows    15.633109 |
   |---------------------------------------------------------------------------------|
-  | Severe Adverse      4   2026m12          2   -.38096318       y_tb   -.38096318 |
-  | Severe Adverse      4   2026m12          3   -2.0623662    y_flows   -20.623662 |
-  | Severe Adverse      7    2027m3          2   -.02614542       y_tb   -.02614542 |
-  | Severe Adverse      7    2027m3          3   -2.5456337    y_flows   -25.456337 |
+  | Severe Adverse      2   2026m11          3       -2.475    y_flows       -24.75 |
+  | Severe Adverse      3   2026m12          3       -2.475    y_flows       -24.75 |
+  | Severe Adverse      4    2027m1          2   -.37285399       y_tb   -.37285399 |
+  | Severe Adverse      4    2027m1          3       -3.713    y_flows       -37.13 |
+  | Severe Adverse      5    2027m2          3       -3.713    y_flows       -37.13 |
+  | Severe Adverse      6    2027m3          3       -4.951    y_flows       -49.51 |
+  | Severe Adverse      7    2027m4          2   -.28280966       y_tb   -.28280966 |
+  | Severe Adverse      7    2027m4          3       -7.426    y_flows       -74.26 |
   +---------------------------------------------------------------------------------+
 
 . bv_out tab "T10_scenario_inputs"
@@ -2255,10 +2262,10 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T11_global_paths.csv
 . list, noobs clean
 
           scenario    ess   ess_ra~o   root_gt1   root~105   low_ess  
-          Baseline   5794      0.966      0.000      0.000         0  
-           Adverse   5383      0.897      0.000      0.000         0  
-            Upside   5406      0.901      0.000      0.000         0  
-    Severe Adverse   4713      0.786      0.000      0.000         0  
+          Baseline   9795      0.979      0.000      0.000         0  
+           Adverse   4868      0.487      0.000      0.000         0  
+            Upside   9179      0.918      0.000      0.000         0  
+    Severe Adverse    927      0.093      0.000      0.000         0  
 
 . save "$data\scenario_diag.dta", replace
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_diag.dta saved
@@ -2311,10 +2318,10 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/D5_scenario_ess
 . list, noobs clean
 
     variable          unit   effect      sd     lo90     hi90                 conclusion  
-     USD/IDR   % perubahan    0.384   0.064    0.278    0.490     berbeda dari nol (90%)  
-          TB        USD bn    0.020   0.058   -0.075    0.115   tidak jelas (interval me  
-       Flows         Rp tn   -3.246   1.008   -4.903   -1.588     berbeda dari nol (90%)  
-    Cadangan   % perubahan   -0.280   0.081   -0.414   -0.147     berbeda dari nol (90%)  
+     USD/IDR   % perubahan    0.383   0.064    0.278    0.488     berbeda dari nol (90%)  
+          TB        USD bn    0.020   0.057   -0.074    0.115   tidak jelas (interval me  
+       Flows         Rp tn   -3.257   1.003   -4.907   -1.607     berbeda dari nol (90%)  
+    Cadangan   % perubahan   -0.277   0.081   -0.410   -0.145     berbeda dari nol (90%)  
 
 . save "$data\dxy_effect.dta", replace
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\dxy_effect.dta saved
@@ -2379,7 +2386,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000005.tmp saved as .dta forma
 . use mdate usdidr using "$data\database.dta", clear
 
 . keep if mdate > $final_origin - 24 & mdate <= $final_origin
-(141 observations deleted)
+(142 observations deleted)
 
 . append using `fc'
 (variable mdate was int, now double to accommodate using data's values)
@@ -2472,14 +2479,14 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000006.tmp saved as .dta forma
 . gen byte lab_pt = mdate == $final_origin + $H_final
 
 . if "$cond_steps" != "" replace lab_pt = 1 if inlist(mdate - $final_origin, $cond_steps)
-(4 real changes made)
+(20 real changes made)
 
 . foreach v in dxy tb flows {
   2.         gen str8 l_`v' = string(`v', "%5.1f") if lab_pt
   3. }
-(20 missing values generated)
-(20 missing values generated)
-(20 missing values generated)
+(4 missing values generated)
+(4 missing values generated)
+(4 missing values generated)
 
 . save "$data\scenario_macro_paths.dta", replace
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_macro_paths.dta saved
@@ -2631,10 +2638,10 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000009.tmp saved as .dta forma
 . list, noobs clean
 
           scenario   dxy_pct6    tb3    tb6   flows3   flows6   usdidr3   usdidr6   lower80   upper80   pct_vs~6  
-          Baseline        0.0    1.6    2.0      9.4      4.5     18002     18073     17204     19028        1.1  
-           Adverse        2.0    0.6    1.0     -0.6     -5.5     18129     18340     17495     19249        2.6  
-            Upside       -2.0    2.6    3.0     19.4     14.5     17848     17803     16977     18706       -0.4  
-    Severe Adverse        5.0   -0.4   -0.0    -20.6    -25.5     18368     18806     17920     19733        5.2  
+          Baseline        0.0    1.6    1.7     10.1      5.6     18174     18360     17475     19282        1.3  
+           Adverse        2.0    0.6    0.7    -20.9    -41.8     18562     19314     18413     20205        6.5  
+            Upside       -2.0    2.6    2.7     20.1     15.6     18032     18077     17229     18953       -0.3  
+    Severe Adverse        5.0   -0.4   -0.3    -37.1    -74.3     18871     20059     19101     21074       10.7  
 
 . save "$data\scenario_summary.dta", replace
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_summary.dta saved
@@ -2883,7 +2890,7 @@ Number of observations (_N) was 0, now 37.
                   seed                        30102026  
                  n_val                             200  
                 n_test                            1000  
-               n_final                            6000  
+               n_final                           10000  
               horizons                           1 3 6  
            release_lag                               2  
             grid_start                  2013 2014 2017  
@@ -2909,13 +2916,13 @@ Number of observations (_N) was 0, now 37.
              seas_harm                               2  
          tb_prior_mean                             0.7  
             scen_sheet                 scenario_inputs  
-            cond_steps                             3,6  
+            cond_steps                     1,2,3,4,5,6  
     validation_origins                2021m1 -  2023m6  
-          test_origins                2024m1 -  2026m2  
-       latest_complete                          2026m8  
-          final_origin                          2026m9  
+          test_origins                2024m1 -  2026m3  
+       latest_complete                          2026m9  
+          final_origin                         2026m10  
          stata_version                         19.5 MP  
-              run_date             2 Nov 2026 13:13:00  
+              run_date             2 Nov 2026 23:35:00  
 
 . bv_out tab "S0_settings"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/S0_settings.csv saved
@@ -2994,26 +3001,26 @@ NARASI HASIL (draft otomatis, profile = standard)
 Spesifikasi terpilih dalam grid menggunakan awal sampel 2014, lag 2, dan lambda 0.03 (model changes). Pemilihannya mengg
 > unakan validation, sedangkan hasil berikut berasal dari test yang terpisah.
 
-Pada horizon 1 bulan, relative RMSE adalah 1.051, dengan RMSE BVARX   270.6 dan RW   257.4 rupiah per USD. Random walk m
-> empunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.81/0.92. Temuan ini belum menyataka
+Pada horizon 1 bulan, relative RMSE adalah 1.036, dengan RMSE BVARX   271.2 dan RW   261.8 rupiah per USD. Random walk m
+> empunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.81/0.93. Temuan ini belum menyataka
 > n keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
 
-Pada horizon 3 bulan, relative RMSE adalah 1.042, dengan RMSE BVARX   567.2 dan RW   544.3 rupiah per USD. Random walk m
-> empunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.77/0.81. Temuan ini belum menyataka
+Pada horizon 3 bulan, relative RMSE adalah 1.025, dengan RMSE BVARX   574.7 dan RW   560.8 rupiah per USD. Random walk m
+> empunyai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.74/0.81. Temuan ini belum menyataka
 > n keunggulan signifikan dan tetap bergantung pada information set serta vintage data.
 
-Pada horizon 6 bulan, relative RMSE adalah 0.982, dengan RMSE BVARX   671.3 dan RW   683.8 rupiah per USD. BVARX mempuny
-> ai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.69/0.96. Temuan ini belum menyatakan keun
+Pada horizon 6 bulan, relative RMSE adalah 0.965, dengan RMSE BVARX   667.4 dan RW   691.9 rupiah per USD. BVARX mempuny
+> ai error lebih kecil secara deskriptif pada horizon ini. Coverage 80%/95%: 0.70/0.96. Temuan ini belum menyatakan keun
 > ggulan signifikan dan tetap bergantung pada information set serta vintage data.
 
-Bootstrap (blok 6) h=1: interval 95% relative RMSE 0.921-1.098 (meliputi 1: belum ada bukti kuat mengungguli RW).
-Bootstrap (blok 6) h=3: interval 95% relative RMSE 0.858-1.153 (meliputi 1: belum ada bukti kuat mengungguli RW).
-Bootstrap (blok 6) h=6: interval 95% relative RMSE 0.804-1.236 (meliputi 1: belum ada bukti kuat mengungguli RW).
+Bootstrap (blok 6) h=1: interval 95% relative RMSE 0.880-1.095 (meliputi 1: belum ada bukti kuat mengungguli RW).
+Bootstrap (blok 6) h=3: interval 95% relative RMSE 0.854-1.146 (meliputi 1: belum ada bukti kuat mengungguli RW).
+Bootstrap (blok 6) h=6: interval 95% relative RMSE 0.788-1.220 (meliputi 1: belum ada bukti kuat mengungguli RW).
 
-Skenario Baseline: median USD/IDR pada Mar 2027 adalah   18073, dengan rentang predictive 80%   17204-  19028.
-Skenario Adverse: median USD/IDR pada Mar 2027 adalah   18340, dengan rentang predictive 80%   17495-  19249.
-Skenario Upside: median USD/IDR pada Mar 2027 adalah   17803, dengan rentang predictive 80%   16977-  18706.
-Skenario Severe Adverse: median USD/IDR pada Mar 2027 adalah   18806, dengan rentang predictive 80%   17920-  19733.
+Skenario Baseline: median USD/IDR pada Apr 2027 adalah   18360, dengan rentang predictive 80%   17475-  19282.
+Skenario Adverse: median USD/IDR pada Apr 2027 adalah   19314, dengan rentang predictive 80%   18413-  20205.
+Skenario Upside: median USD/IDR pada Apr 2027 adalah   18077, dengan rentang predictive 80%   17229-  18953.
+Skenario Severe Adverse: median USD/IDR pada Apr 2027 adalah   20059, dengan rentang predictive 80%   19101-  21074.
 
 Bersyarat pada jalur DXY dan pembatasan observabel yang dijelaskan. Skenario adalah proyeksi bersama model, bukan estima
 > si efek kausal tunggal.
@@ -3059,7 +3066,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000001.tmp saved as .dta forma
 
 . tsset mdate, monthly
 
-Time variable: mdate, 2013m1 to 2026m9
+Time variable: mdate, 2013m1 to 2026m10
         Delta: 1 month
 
 . gen double dl = D.y_s/100
@@ -3078,7 +3085,7 @@ Time variable: mdate, 2013m1 to 2026m9
 . local drift = r(mean)/100/12
 
 . di "Anchor " %9.0f `s0' "; vol bulanan " %6.4f `sig' "; drift per bulan (BI-Fed/12) " %7.5f `drift'
-Anchor     17870; vol bulanan 0.0234; drift per bulan (BI-Fed/12) 0.00156
+Anchor     18127; vol bulanan 0.0234; drift per bulan (BI-Fed/12) 0.00156
 
 . clear
 
@@ -3159,33 +3166,33 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\forecast_compare.dta 
   +------------------------------------------------------------+
   |    model     mdate   lower80   median   upper80   pct_vs~r |
   |------------------------------------------------------------|
-  |     bvar   2026m10     17604    17951     18306       0.45 |
-  |     bvar   2026m11     17511    18001     18504       0.73 |
-  |     bvar   2026m12     17407    18002     18633       0.74 |
-  |     bvar    2027m1     17276    17980     18757       0.61 |
-  |     bvar    2027m2     17226    18010     18874       0.78 |
-  |     bvar    2027m3     17204    18073     19028       1.14 |
+  |     bvar   2026m11     17835    18178     18531       0.28 |
+  |     bvar   2026m12     17678    18178     18701       0.28 |
+  |     bvar    2027m1     17558    18174     18809       0.26 |
+  |     bvar    2027m2     17472    18181     18936       0.30 |
+  |     bvar    2027m3     17459    18264     19100       0.76 |
+  |     bvar    2027m4     17475    18360     19282       1.29 |
   |------------------------------------------------------------|
-  |       rw   2026m10     17341    17870     18415       0.00 |
-  |       rw   2026m11     17127    17870     18646       0.00 |
-  |       rw   2026m12     16964    17870     18825       0.00 |
-  |       rw    2027m1     16828    17870     18977       0.00 |
-  |       rw    2027m2     16709    17870     19112       0.00 |
-  |       rw    2027m3     16602    17870     19235       0.00 |
+  |       rw   2026m11     17592    18127     18679       0.00 |
+  |       rw   2026m12     17375    18127     18912       0.00 |
+  |       rw    2027m1     17210    18127     19093       0.00 |
+  |       rw    2027m2     17072    18127     19247       0.00 |
+  |       rw    2027m3     16952    18127     19384       0.00 |
+  |       rw    2027m4     16844    18127     19508       0.00 |
   |------------------------------------------------------------|
-  | rw_drift   2026m10     17368    17898     18444       0.16 |
-  | rw_drift   2026m11     17180    17926     18704       0.31 |
-  | rw_drift   2026m12     17043    17954     18913       0.47 |
-  | rw_drift    2027m1     16933    17982     19096       0.63 |
-  | rw_drift    2027m2     16840    18010     19262       0.78 |
-  | rw_drift    2027m3     16758    18038     19416       0.94 |
+  | rw_drift   2026m11     17619    18155     18708       0.16 |
+  | rw_drift   2026m12     17429    18184     18971       0.31 |
+  | rw_drift    2027m1     17291    18212     19183       0.47 |
+  | rw_drift    2027m2     17179    18241     19368       0.63 |
+  | rw_drift    2027m3     17085    18269     19536       0.78 |
+  | rw_drift    2027m4     17002    18298     19692       0.94 |
   |------------------------------------------------------------|
-  |    combo   2026m10     17486    17924     18375       0.30 |
-  |    combo   2026m11     17346    17963     18604       0.52 |
-  |    combo   2026m12     17225    17978     18773       0.60 |
-  |    combo    2027m1     17105    17981     18927       0.62 |
-  |    combo    2027m2     17033    18010     19068       0.78 |
-  |    combo    2027m3     16981    18056     19222       1.04 |
+  |    combo   2026m11     17727    18167     18619       0.22 |
+  |    combo   2026m12     17554    18181     18836       0.30 |
+  |    combo    2027m1     17424    18193     18996       0.36 |
+  |    combo    2027m2     17326    18211     19152       0.46 |
+  |    combo    2027m3     17272    18267     19318       0.77 |
+  |    combo    2027m4     17239    18329     19487       1.11 |
   +------------------------------------------------------------+
 
 . bv_out tab "T12_forecast_compare"
@@ -3217,12 +3224,12 @@ xij variables:
 .         list, noobs clean
 
       mdate    bvar   combo      rw   rw_drift  
-    2026m10   17951   17924   17870      17898  
-    2026m11   18001   17963   17870      17926  
-    2026m12   18002   17978   17870      17954  
-     2027m1   17980   17981   17870      17982  
-     2027m2   18010   18010   17870      18010  
-     2027m3   18073   18056   17870      18038  
+    2026m11   18178   18167   18127      18155  
+    2026m12   18178   18181   18127      18184  
+     2027m1   18174   18193   18127      18212  
+     2027m2   18181   18211   18127      18241  
+     2027m3   18264   18267   18127      18269  
+     2027m4   18360   18329   18127      18298  
 
 .         bv_out tab "T13_forecast_compare_wide"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T13_forecast_compare_wide.csv saved
@@ -3258,7 +3265,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000006.tmp saved as .dta forma
 .         use mdate usdidr using "$data\database.dta", clear
 
 .         keep if mdate > $final_origin - 24 & mdate <= $final_origin
-(141 observations deleted)
+(142 observations deleted)
 
 .         append using `w'
 (variable mdate was int, now double to accommodate using data's values)
@@ -3372,7 +3379,7 @@ end of do-file
 
 . tsset mdate, monthly
 
-Time variable: mdate, 2013m1 to 2026m9
+Time variable: mdate, 2013m1 to 2026m10
         Delta: 1 month
 
 . * prediktor pasar dari rata-rata bulanan (kolom usdidr_avg, dxy_avg, ust10y_avg di database_monthly)
@@ -3636,9 +3643,9 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\bma_test_backtest.dta
 
 . bv_bma_score
 file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000003.tmp saved as .dta format
-(52 observations deleted)
-(52 observations deleted)
-(52 observations deleted)
+(54 observations deleted)
+(54 observations deleted)
+(54 observations deleted)
 
 . format rmse_* %9.1f
 
@@ -3649,9 +3656,9 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000003.tmp saved as .dta forma
   +------------------------------------------------------------------------------------------+
   | horizon    n   rmse_bma   rmse_rw   relati~e   direct~n   dm_hln    dm_p    cw_t    cw_p |
   |------------------------------------------------------------------------------------------|
-  |       1   26      254.1     257.4      0.987      0.615   -0.417   0.680   0.681   0.248 |
-  |       3   26      508.4     544.3      0.934      0.731   -1.098   0.283   1.593   0.056 |
-  |       6   26      586.0     683.8      0.857      0.769   -1.102   0.281   2.046   0.020 |
+  |       1   27      256.4     261.8      0.979      0.630   -0.696   0.492   0.943   0.173 |
+  |       3   27      519.5     560.8      0.926      0.741   -1.255   0.221   1.749   0.040 |
+  |       6   27      586.8     691.9      0.848      0.778   -1.192   0.244   2.144   0.016 |
   +------------------------------------------------------------------------------------------+
 
 . save "$data\bma_test_scores.dta", replace
@@ -3683,9 +3690,9 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/B2_bma_test_scores.c
 . list, noobs clean
 
     horizon   relati~x   relati~a  
-          1      1.051      0.987  
-          3      1.042      0.934  
-          6      0.982      0.857  
+          1      1.036      0.979  
+          3      1.025      0.926  
+          6      0.965      0.848  
 
 . bv_out tab "B3_bma_vs_bvarx"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/B3_bma_vs_bvarx.csv saved
@@ -3758,16 +3765,16 @@ Model summary            Number of models:
              |   Analytical PMP     Model size
 -------------+--------------------------------
 Rank         |
-           1 |           .03216              2
-           2 |           .02929              3
-           3 |           .02905              3
-           4 |           .02892              3
-           5 |           .02891              3
-           6 |           .02653              4
-           7 |           .02649              4
-           8 |           .02642              4
-           9 |           .02638              4
-          10 |           .02615              4
+           1 |           .03225              2
+           2 |           .02948              3
+           3 |           .02914              3
+           4 |           .02902              3
+           5 |             .029              3
+           6 |           .02671              4
+           7 |           .02662              4
+           8 |            .0266              4
+           9 |           .02655              4
+          10 |           .02627              4
 ----------------------------------------------
 
 Variable-inclusion summary
@@ -3777,10 +3784,10 @@ Variable-inclusion summary
 -------------+----------------------------------------------------------------------------------------------------
           ds |     x         x         x         x         x         x         x         x         x         x    
         ddxy |     x         x         x         x         x         x         x         x         x         x    
-        dust |               x                                                 x         x         x    
-       dres2 |                         x                             x                   x                   x    
-       flow2 |                                   x                   x                             x    
-         tb2 |                                             x                   x                             x    
+        dust |               x                                       x                   x         x    
+       dres2 |                         x                                       x         x                   x    
+         tb2 |                                   x                   x                                       x    
+       flow2 |                                             x                   x                   x    
 ------------------------------------------------------------------------------------------------------------------
 Legend:
   x - estimated
@@ -3799,16 +3806,16 @@ Model summary            Number of models:
              |   Analytical PMP     Model size
 -------------+--------------------------------
 Rank         |
-           1 |           .03364              4
-           2 |           .03314              5
-           3 |           .03219              4
-           4 |           .03157              3
-           5 |           .03012              5
-           6 |           .02979              6
-           7 |           .02895              5
-           8 |           .02826              4
-           9 |            .0272              3
-          10 |           .02719              5
+           1 |            .0335              4
+           2 |           .03306              5
+           3 |           .03237              4
+           4 |           .03173              3
+           5 |           .03002              5
+           6 |           .02974              6
+           7 |           .02912              5
+           8 |           .02841              4
+           9 |           .02722              5
+          10 |           .02709              3
 ----------------------------------------------
 
 Variable-inclusion summary
@@ -3820,8 +3827,8 @@ Variable-inclusion summary
         dust |     x         x         x         x         x         x         x         x         x         x    
        flow2 |     x         x         x         x         x         x         x         x    
          tb2 |     x         x                             x         x                             x         x    
-        ddxy |               x         x                             x         x                             x    
-       dres2 |                                             x         x         x         x                   x    
+        ddxy |               x         x                             x         x                   x    
+       dres2 |                                             x         x         x         x         x    
 ------------------------------------------------------------------------------------------------------------------
 Legend:
   x - estimated
@@ -3840,16 +3847,16 @@ Model summary            Number of models:
              |   Analytical PMP     Model size
 -------------+--------------------------------
 Rank         |
-           1 |           .03339              3
-           2 |           .03078              4
-           3 |           .03034              4
-           4 |           .03031              4
-           5 |           .03002              3
-           6 |           .02799              5
-           7 |           .02796              5
-           8 |           .02772              2
-           9 |           .02738              5
-          10 |           .02717              4
+           1 |            .0334              3
+           2 |           .03043              4
+           3 |           .03042              4
+           4 |           .03029              4
+           5 |           .02877              3
+           6 |           .02774              5
+           7 |           .02761              5
+           8 |           .02744              5
+           9 |            .0272              2
+          10 |           .02611              4
 ----------------------------------------------
 
 Variable-inclusion summary
@@ -3859,10 +3866,10 @@ Variable-inclusion summary
 -------------+----------------------------------------------------------------------------------------------------
           ds |     x         x         x         x         x         x         x         x         x         x    
         ddxy |     x         x         x         x         x         x         x         x         x         x    
-       flow2 |     x         x         x         x                   x         x                   x    
-       dres2 |               x                             x         x         x                             x    
-        dust |                         x                             x                             x         x    
-         tb2 |                                   x                             x                   x    
+       flow2 |     x         x         x         x                   x         x         x    
+        dust |               x                                       x                   x                   x    
+       dres2 |                         x                   x         x         x                             x    
+         tb2 |                                   x                             x         x    
 ------------------------------------------------------------------------------------------------------------------
 Legend:
   x - estimated
@@ -3884,12 +3891,12 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/B6_bma_varinclu
 . list, noobs clean
 
     h     mdate   mean_pct   sd_pct   median   lower95   lower80   upper80   upper95  
-    1   2026m10       0.32     2.28    17927     17144     17411     18458     18746  
-    2   2026m11       0.68     3.06    17993     16945     17300     18713     19106  
-    3   2026m12       1.03     3.46    18054     16870     17271     18873     19322  
-    4    2027m1       1.29     3.69    18101     16838     17265     18978     19459  
-    5    2027m2       1.53     3.96    18146     16792     17249     19091     19610  
-    6    2027m3       1.79     4.13    18192     16777     17254     19181     19726  
+    1   2026m11       0.26     2.27    18175     17382     17653     18712     19003  
+    2   2026m12       0.54     3.06    18226     17166     17526     18954     19351  
+    3    2027m1       0.83     3.45    18278     17083     17487     19104     19557  
+    4    2027m2       1.17     3.68    18340     17064     17496     19226     19712  
+    5    2027m3       1.51     3.95    18403     17032     17495     19358     19884  
+    6    2027m4       1.81     4.13    18459     17025     17508     19461     20013  
 
 . bv_out tab "B5_bma_final_forecast"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/B5_bma_final_forecast.csv saved
@@ -3913,12 +3920,12 @@ xij variables:
 . list, noobs clean
 
     predic~r    pip1    pip3    pip6  
-        ddxy   0.568   0.513   0.609  
-       dres2   0.479   0.485   0.493  
-          ds   0.718   0.786   0.695  
-        dust   0.488   0.575   0.486  
-       flow2   0.475   0.537   0.524  
-         tb2   0.476   0.510   0.473  
+        ddxy   0.569   0.513   0.603  
+       dres2   0.479   0.485   0.490  
+          ds   0.721   0.788   0.690  
+        dust   0.490   0.574   0.487  
+       flow2   0.475   0.537   0.530  
+         tb2   0.477   0.508   0.473  
 
 . bv_out diag "B4_bma_pip_final"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/B4_bma_pip_final.csv saved
@@ -4081,33 +4088,33 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\hybrid_scenarios.dta 
   +-----------------------------------------------------------------------------+
   |       scenario     mdate   lower80   median   upper80   pct_vs~r   scen_s~t |
   |-----------------------------------------------------------------------------|
-  |       Baseline   2026m10     17411    17927     18458       0.32       0.00 |
-  |       Baseline   2026m11     17300    17993     18713       0.69       0.00 |
-  |       Baseline   2026m12     17271    18054     18873       1.03       0.00 |
-  |       Baseline    2027m1     17265    18101     18978       1.29       0.00 |
-  |       Baseline    2027m2     17249    18146     19091       1.55       0.00 |
-  |       Baseline    2027m3     17254    18192     19181       1.80       0.00 |
+  |       Baseline   2026m11     17653    18175     18712       0.26       0.00 |
+  |       Baseline   2026m12     17526    18226     18954       0.54       0.00 |
+  |       Baseline    2027m1     17487    18278     19104       0.83       0.00 |
+  |       Baseline    2027m2     17496    18340     19226       1.18       0.00 |
+  |       Baseline    2027m3     17495    18403     19358       1.52       0.00 |
+  |       Baseline    2027m4     17508    18459     19461       1.83       0.00 |
   |-----------------------------------------------------------------------------|
-  |        Adverse   2026m10     17442    17959     18491       0.50       0.18 |
-  |        Adverse   2026m11     17359    18053     18776       1.03       0.34 |
-  |        Adverse   2026m12     17393    18182     19006       1.74       0.71 |
-  |        Adverse    2027m1     17420    18263     19148       2.20       0.90 |
-  |        Adverse    2027m2     17429    18336     19290       2.61       1.04 |
-  |        Adverse    2027m3     17509    18461     19464       3.30       1.48 |
+  |        Adverse   2026m11     17740    18264     18805       0.76       0.49 |
+  |        Adverse   2026m12     17749    18458     19196       1.83       1.28 |
+  |        Adverse    2027m1     17860    18668     19512       2.98       2.13 |
+  |        Adverse    2027m2     18011    18881     19792       4.16       2.95 |
+  |        Adverse    2027m3     18163    19105     20097       5.40       3.82 |
+  |        Adverse    2027m4     18417    19417     20472       7.12       5.19 |
   |-----------------------------------------------------------------------------|
-  |         Upside   2026m10     17382    17897     18428       0.15      -0.17 |
-  |         Upside   2026m11     17236    17926     18644       0.31      -0.37 |
-  |         Upside   2026m12     17124    17901     18712       0.17      -0.85 |
-  |         Upside    2027m1     17094    17922     18790       0.29      -0.99 |
-  |         Upside    2027m2     17049    17936     18870       0.37      -1.16 |
-  |         Upside    2027m3     16996    17920     18894       0.28      -1.49 |
+  |         Upside   2026m11     17624    18145     18682       0.10      -0.16 |
+  |         Upside   2026m12     17467    18164     18890       0.21      -0.34 |
+  |         Upside    2027m1     17351    18135     18955       0.04      -0.78 |
+  |         Upside    2027m2     17335    18172     19050       0.25      -0.91 |
+  |         Upside    2027m3     17296    18193     19138       0.37      -1.14 |
+  |         Upside    2027m4     17238    18174     19161       0.26      -1.54 |
   |-----------------------------------------------------------------------------|
-  | Severe Adverse   2026m10     17484    18002     18536       0.74       0.42 |
-  | Severe Adverse   2026m11     17451    18149     18876       1.56       0.87 |
-  | Severe Adverse   2026m12     17622    18421     19257       3.09       2.03 |
-  | Severe Adverse    2027m1     17681    18537     19435       3.73       2.41 |
-  | Severe Adverse    2027m2     17739    18662     19633       4.43       2.84 |
-  | Severe Adverse    2027m3     17954    18930     19959       5.93       4.06 |
+  | Severe Adverse   2026m11     17831    18358     18901       1.28       1.01 |
+  | Severe Adverse   2026m12     17904    18620     19364       2.72       2.16 |
+  | Severe Adverse    2027m1     18158    18978     19836       4.70       3.83 |
+  | Severe Adverse    2027m2     18407    19296     20228       6.45       5.21 |
+  | Severe Adverse    2027m3     18686    19656     20676       8.43       6.81 |
+  | Severe Adverse    2027m4     19128    20166     21262      11.25       9.25 |
   +-----------------------------------------------------------------------------+
 
 . bv_out tab "T15_hybrid_scenarios"
@@ -4125,10 +4132,10 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T15_hybrid_scenarios
 .         list, noobs clean
 
           scenario    mdate   median   lower80   upper80   lower95   upper95   pct_vs~r   scen_s~t  
-          Baseline   2027m3    18192     17254     19181     16777     19726       1.80       0.00  
-           Adverse   2027m3    18461     17509     19464     17025     20017       3.30       1.48  
-            Upside   2027m3    17920     16996     18894     16526     19431       0.28      -1.49  
-    Severe Adverse   2027m3    18930     17954     19959     17458     20526       5.93       4.06  
+          Baseline   2027m4    18459     17508     19461     17025     20013       1.83       0.00  
+           Adverse   2027m4    19417     18417     20472     17909     21053       7.12       5.19  
+            Upside   2027m4    18174     17238     19161     16762     19705       0.26      -1.54  
+    Severe Adverse   2027m4    20166     19128     21262     18600     21865      11.25       9.25  
 
 .         bv_out tab "T16_hybrid_summary"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T16_hybrid_summary.csv saved
@@ -4198,7 +4205,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000004.tmp saved as .dta forma
 . use mdate usdidr using "$data\database.dta", clear
 
 . keep if mdate > $final_origin - 24 & mdate <= $final_origin
-(141 observations deleted)
+(142 observations deleted)
 
 . append using `hw'
 (variable mdate was int, now double to accommodate using data's values)
@@ -4407,9 +4414,9 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\10_hybrid_macro.png
 .         list, noobs clean
 
     horizon   relati~e    cw_p    dm_p   direct~n   cover~80   cover~95  
-          1      0.987   0.248   0.680      0.615      0.923      0.962  
-          3      0.934   0.056   0.283      0.731      0.846      0.962  
-          6      0.857   0.020   0.281      0.769      0.808      1.000  
+          1      0.979   0.173   0.492      0.630      0.926      0.963  
+          3      0.926   0.040   0.221      0.741      0.852      0.963  
+          6      0.848   0.016   0.244      0.778      0.815      1.000  
 
 .         bv_out tab "T17_hybrid_baseline_test"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T17_hybrid_baseline_test.csv saved
@@ -4536,7 +4543,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000009.tmp saved as .dta forma
 . use mdate usdidr using "$data\database.dta", clear
 
 . keep if mdate > $final_origin - 24 & mdate <= $final_origin
-(141 observations deleted)
+(142 observations deleted)
 
 . append using `cw'
 (variable mdate was int, now double to accommodate using data's values)
@@ -4570,14 +4577,14 @@ end of do-file
 . timer off 1
 
 . timer list 1
-   1:    135.98 /        1 =     135.9780
+   1:    126.03 /        1 =     126.0280
 
 . di "Selesai: `c(current_date)' `c(current_time)'"
-Selesai:  2 Nov 2026 13:13:59
+Selesai:  2 Nov 2026 23:35:57
 
 . log close main
       name:  main
        log:  C:\Users\LENOVO05\github\Simulasi-Rupiah\output\run_log.log
   log type:  text
- closed on:   2 Nov 2026, 13:13:59
+ closed on:   2 Nov 2026, 23:35:57
 ------------------------------------------------------------------------------------------------------------------------

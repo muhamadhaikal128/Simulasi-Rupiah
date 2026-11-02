@@ -128,7 +128,8 @@ if "$profile" == "quick" {
 else if "$profile" == "standard" {
 	global n_val 200
 	global n_test 1000
-	global n_final 6000
+	* 10.000 draw: skenario outflow mengunci flows 6 bulan, ESS Severe Adverse ~0,09
+	global n_final 10000
 }
 else if "$profile" == "publication" {
 	global n_val 1000

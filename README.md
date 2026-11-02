@@ -4,14 +4,14 @@ Forecast bulanan kurs USD/IDR untuk 6 bulan ke depan, lengkap dengan rentang ket
 skenario makro (Upside, Adverse, Severe Adverse). Diadaptasi dari
 `input/reference/Manual_Model_Rupiah_BVARX.Rmd` dan ditulis ulang di Stata (Mata + `bmaregress`).
 
-Hasil run terakhir (2 Nov 2026, v4.2), anchor Sep 2026 = 17.870:
+Hasil run terakhir (2 Nov 2026, v4.3, data sampai Okt 2026), anchor Okt 2026 = 18.127:
 
-| USD/IDR Mar 2027 | Median | Rentang 80% | vs Sep-26 |
+| USD/IDR Apr 2027 | Median | Rentang 80% | vs Okt-26 |
 |:--|--:|:--|--:|
-| Baseline | 18.192 | 17.254 – 19.181 | +1,8% |
-| Upside | 17.920 | 16.996 – 18.894 | +0,3% |
-| Adverse | 18.461 | 17.509 – 19.464 | +3,3% |
-| Severe Adverse | 18.930 | 17.954 – 19.959 | +5,9% |
+| Baseline | 18.459 | 17.508 – 19.461 | +1,8% |
+| Upside | 18.174 | 17.238 – 19.161 | +0,3% |
+| Adverse | 19.417 | 18.417 – 20.472 | +7,1% |
+| Severe Adverse | 20.166 | 19.128 – 21.262 | +11,3% |
 
 ## 1. Cara kerja model
 
@@ -76,20 +76,21 @@ kurs bergerak?
 3. **Prior Minnesota konjugat** (λ = 0,03): koefisien ditarik ke "tidak ada hubungan", kecuali lag
    trade balance yang berpusat di 0,7 karena trade balance sangat persisten.
 4. **Conditional forecast** (Waggoner & Zha, 1999): jalur DXY ditentukan sebagai input, sedangkan trade
-   balance dan flows "dikunci" pada nilai skenario di bulan yang diisi di sheet skenario (default Des-26
-   dan Mar-27). Model menghitung jalur kurs
-   yang konsisten dengan kondisi itu, dengan 6.000 simulasi posterior.
+   balance dan flows "dikunci" pada nilai skenario di bulan yang diisi di sheet skenario (TB: Jan-27
+   dan Apr-27; flows Adverse/Severe: setiap bulan). Model menghitung jalur kurs
+   yang konsisten dengan kondisi itu, dengan 10.000 simulasi posterior.
 5. **Skenario:**
 
-   | Skenario | DXY (s/d Mar-27) | Trade balance | Net flows |
+   | Skenario | DXY (s/d Apr-27) | Trade balance | Net flows asing (Nov-26 s/d Apr-27) |
    |:--|:--|:--|:--|
    | Baseline | datar | jalur model | jalur model |
-   | Upside | −2% | +USD1 bn vs baseline | +Rp10 tn vs baseline |
-   | Adverse | +2% | −USD1 bn | −Rp10 tn |
-   | Severe Adverse | +5% | −USD2 bn | −Rp30 tn |
+   | Upside | −2% | +USD1 bn vs baseline | +Rp10 tn vs baseline (Jan, Apr) |
+   | Adverse | +2% | −USD1 bn | outflow 13,95 / 13,95 / 20,92 / 20,92 / 27,90 / 41,84 (total Rp139,48 tn) |
+   | Severe Adverse | +5% | −USD2 bn | outflow 24,75 / 24,75 / 37,13 / 37,13 / 49,51 / 74,26 (total Rp247,53 tn) |
 
-   Besaran Adverse/Upside mengikuti contoh ilustratif di manual; Severe Adverse ditetapkan sebagai
-   tekanan sekitar dua kali Adverse. Keduanya belum dikalibrasi ke distribusi historis.
+   DXY dan trade balance mengikuti contoh ilustratif di manual. Outflow Adverse dan Severe Adverse adalah
+   jalur absolut dari pengguna (diisi sebagai angka asli di kolom K sheet skenario). Hasilnya setara
+   kira-kira persentil 90 (Adverse) dan di atas persentil 95 (Severe Adverse) pergerakan rupiah 6 bulanan.
 
    Asumsi ini diisi per bulan di sheet **`scenario_inputs`** pada `input/Database_Rupiah_Bulanan.xlsx`
    (satu baris per skenario × bulan ke-h):
@@ -107,7 +108,7 @@ kurs bergerak?
    (median baseline BVARX dari `T9_scenario_paths_all`) dan DXY anchor (sel O4). Rumusnya: geser = target −
    baseline, dan `dxy_pct` = (DXY target ÷ DXY anchor − 1) × 100. Baseline (H, J) dan anchor (O3, O4)
    perlu diperbarui setiap kali data bulan baru masuk.
-   Isi default sama dengan tabel di atas (DXY bergerak geometrik, TB dan flows dikunci di h = 3 dan 6).
+   Isi saat ini sama dengan tabel di atas (DXY bergerak geometrik; TB dan flows Upside dikunci di h = 3 dan 6; flows Adverse/Severe di h = 1–6).
    Untuk periode baru cukup ubah angka di sheet itu, simpan, lalu jalankan `00_master.do`. Input yang
    dipakai tercatat di `output/tables/T0_scenario_inputs.csv`.
 
@@ -117,8 +118,8 @@ Untuk setiap bulan dan skenario:
 
 > **Skenario = Baseline BMA × (median skenario BVARX ÷ median Baseline BVARX)**
 
-Contoh Mar 2027: di BVARX, Severe Adverse 4,06% di atas Baseline BVARX, sehingga
-Severe Adverse = 18.192 × 1,0406 = 18.930. Rentang skenario adalah rentang BMA yang digeser
+Contoh Apr 2027: di BVARX, Severe Adverse 9,25% di atas Baseline BVARX (20.059 ÷ 18.360), sehingga
+Severe Adverse = 18.459 × 1,0925 = 20.166. Rentang skenario adalah rentang BMA yang digeser
 dengan rasio yang sama.
 
 ## 2. Evaluasi
@@ -126,7 +127,7 @@ dengan rasio yang sama.
 Semua model dinilai **out-of-sample** dengan origin bergulir dan information set yang sama:
 
 - **Validation** (origin Jan 2021 – Jun 2023): memilih spesifikasi (start year, lag, λ, eksogen, g).
-- **Test** (origin Jan 2024 – Feb 2026, 26 forecast per horizon): menilai akurasi.
+- **Test** (origin Jan 2024 – Mar 2026, 27 forecast per horizon): menilai akurasi.
 - Di setiap origin model diestimasi ulang hanya dengan data yang sudah tersedia; variabel makro
   memakai jeda rilis 2 bulan.
 - Benchmark: **random walk tanpa drift** (kurs ke depan = kurs hari ini).
@@ -135,12 +136,12 @@ Hasil test baseline (BMA), `T17_hybrid_baseline_test`:
 
 | Horizon | Relative RMSE vs RW | Clark-West p | Arah benar | Coverage 80% | Coverage 95% |
 |:--|--:|--:|--:|--:|--:|
-| 1 bulan | 0,99 | 0,25 | 62% | 0,92 | 0,96 |
-| 3 bulan | 0,93 | 0,06 | 73% | 0,85 | 0,96 |
-| 6 bulan | 0,86 | **0,02** | 77% | 0,81 | 1,00 |
+| 1 bulan | 0,98 | 0,17 | 63% | 0,93 | 0,96 |
+| 3 bulan | 0,93 | **0,04** | 74% | 0,85 | 0,96 |
+| 6 bulan | 0,85 | **0,02** | 78% | 0,81 | 1,00 |
 
 Relative RMSE di bawah 1 berarti lebih akurat dari random walk. Keunggulan signifikan secara
-statistik di horizon 6 bulan (5%) dan hampir signifikan di 3 bulan (p 0,06); coverage interval mendekati target.
+statistik di horizon 3 dan 6 bulan (5%); coverage interval mendekati target.
 
 ## 3. Keterbatasan
 
@@ -152,7 +153,7 @@ statistik di horizon 6 bulan (5%) dan hampir signifikan di 3 bulan (p 0,06); cov
    koefisien sekitar 80%. Forecast BMA pada dasarnya drift depresiasi historis ditambah sinyal kecil.
 3. **Skenario adalah overlay**: baseline BMA digeser dengan efek dari BVARX, dua model dengan struktur berbeda. Rentang skenario tidak memuat
    ketidakpastian dari jalur skenario itu sendiri.
-4. **Besaran shock skenario belum dikalibrasi** ke distribusi historis.
+4. **Model linear untuk outflow ekstrem**: Rp100 tn flows di luar baseline ≈ 2,3% kurs berapa pun besarnya, dan bulan krisis dikeluarkan lewat dummy; Severe Adverse sebaiknya dibaca sebagai batas bawah. Data Oktober 2026 (flows) masih sementara; TB dan cadangan Oktober belum dirilis.
 5. **Bulan dummy BVARX** dipilih dari seluruh sampel; dummy juga membuat interval BVARX terlalu sempit
    (dipakai hanya untuk selisih skenario, bukan rentang).
 6. **Data latest vintage** (pseudo-real-time); baseline DXY datar; residual trade balance BVARX masih

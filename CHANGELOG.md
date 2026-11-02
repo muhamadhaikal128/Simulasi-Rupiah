@@ -231,3 +231,23 @@ Hasil run v3, 30 Okt 2026 14:53 (spesifikasi: start 2013, lag 2, lambda 0,1; N =
 - Manual: Gambar 5.1 (hubungan antarvariabel BMA) dan Gambar 6.1 (BVARX); nomor gambar lain di Bab 5–6 bergeser. Deck: slide yang sama di bagian 05 dan 06; deck kini mengikuti urutan bab manual.
 - Koefisien posterior BMA (origin Sep 2026, rata-rata 64 model): perubahan kurs bulan ini −0,05 / −0,09 / −0,08 (h = 1 / 3 / 6), jadi tandanya pembalikan, bukan momentum; istilah "momentum" di manual, deck, dan README diganti. DXY dan UST10Y positif; flows, trade balance, dan cadangan praktis nol. Efek 1 sd prediktor ≤ 0,17% vs konstanta +1,70% di h = 6.
 - Eksperimen scratchpad (tidak dipakai): skenario tanpa Monte Carlo (BVARX dengan rata-rata posterior) memberi rasio hampir identik (Severe Adverse Mar 2027 18.899 vs 18.930); regresi langsung per horizon memberi efek skenario 20–25% lebih kecil dan tidak lebih akurat pada uji dengan jalur DXY/TB/flows aktual (DM p 0,24–0,97). Jumlah draw 10.000 dan 30.000 menggeser hasil gabungan ≤ Rp31 dibanding 6.000; tetap 6.000.
+
+## v4.3 — 2 Nov 2026: data Oktober 2026, skenario outflow, 10.000 draw
+
+- Data: pasar sampai Oktober 2026 (file Asset Market Updater per 2 Nov; akhir Oktober USD/IDR 18.127,
+  DXY 101,879, UST10Y 4,93%); rata-rata harian September dihitung ulang sebulan penuh; trade balance
+  September (BPS 2 Nov: ekspor 27,59, impor 24,23, surplus 3,36); VIX, BI-Rate, Fed funds Oktober;
+  flows Oktober sementara dari Grand_Capital_Flows_ACUAN (7) (saham s.d. 30 Okt, SBN s.d. 29 Okt,
+  SRBI proxy mingguan): −17,16. TB dan cadangan Oktober belum rilis. Bulan lengkap terakhir September,
+  anchor Oktober; horizon November 2026 – April 2027.
+- Skenario: flows Adverse dan Severe Adverse dikunci pada outflow absolut setiap bulan (input pengguna):
+  13,95 / 13,95 / 20,92 / 20,92 / 27,90 / 41,84 (total 139,48) dan 24,75 / 24,75 / 37,13 / 37,13 / 49,51 /
+  74,26 (total 247,53). DXY (+2%, +5%, −2%) dan TB (−1, −2, +1 di h = 3 dan 6) tetap; Upside tidak diubah.
+-  0_master.do: 
+_final standard 6.000 → 10.000 (ESS Severe Adverse 0,09 = 927 draw efektif).
+- Hasil: BMA test 0,979 / 0,926 / 0,848 (27 forecast), Clark-West p 0,17 / 0,040 / 0,016, coverage 80%
+  0,93 / 0,85 / 0,81. USD/IDR Apr 2027: Baseline 18.459 [17.508–19.461], Upside 18.174, Adverse 19.417,
+  Severe Adverse 20.166 [19.128–21.262] (+5,2% dan +9,3% di atas baseline).
+- Manual, deck, README diperbarui; flowchart contoh skenario dan Monte Carlo memakai angka baru.
+- Uji scratchpad DMA/DMS (Raftery dkk. 2010; Koop & Korobilis 2012): λ terpilih 1 (koefisien tetap),
+  rata-rata relative RMSE 0,928 vs BMA 0,944, tidak signifikan (DM p 0,15–0,99). BMA dipertahankan.
