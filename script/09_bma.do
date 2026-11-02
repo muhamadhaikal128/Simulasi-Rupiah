@@ -1,9 +1,11 @@
 **# 9. BAYESIAN MODEL AVERAGING (bmaregress) VS RANDOM WALK TANPA DRIFT
 * Regresi prediktif langsung per horizon h: y_h(t) = 100*[log S(t+h) - log S(t)] pada prediktor
-* yang diketahui di akhir bulan t. 6 kandidat (2^6 = 64 model, enumerasi penuh):
-*   ds    perubahan 100 log USD/IDR bulan t          (pasar, bulan t)
-*   ddxy  perubahan 100 log DXY bulan t              (pasar, bulan t)
-*   dust  perubahan UST10Y bulan t (pp)               (pasar, bulan t)
+* yang diketahui di akhir bulan t. Target tetap kurs AKHIR bulan. 6 kandidat (2^6 = 64 model):
+*   ds    perubahan 100 log rata-rata bulanan USD/IDR, bulan t   (pasar, rata-rata harian)
+*   ddxy  perubahan 100 log rata-rata bulanan DXY, bulan t       (pasar, rata-rata harian)
+*   dust  perubahan rata-rata bulanan UST10Y, bulan t (pp)        (pasar, rata-rata harian)
+*   (v4.2: rata-rata bulanan dari data harian menggantikan nilai akhir bulan; uji scratchpad
+*    2 Nov 2026: rata-rata relative RMSE 0,944 vs 0,950, lebih baik di 6/6 periode x horizon)
 *   flow2 net flows bulan t-2 (Rp10 tn)               (jeda rilis 2 bulan)
 *   tb2   trade balance bulan t-2 (USD bn)            (jeda rilis 2 bulan)
 *   dres2 perubahan 100 log cadangan bulan t-2        (jeda rilis 2 bulan)
@@ -21,9 +23,10 @@
 **## 9.1 Data dan prediktor
 use "$data\database.dta", clear
 tsset mdate, monthly
-gen double ds    = dy_s
-gen double ddxy  = dx_dxy
-gen double dust  = D.ust10y_pct
+* prediktor pasar dari rata-rata bulanan (kolom usdidr_avg, dxy_avg, ust10y_avg di database_monthly)
+gen double ds    = 100*(ln(usdidr_avg) - ln(L.usdidr_avg))
+gen double ddxy  = 100*(ln(dxy_avg) - ln(L.dxy_avg))
+gen double dust  = D.ust10y_avg
 gen double flow2 = L2.net_flows_idrtn/10
 gen double tb2   = L2.trade_bal_usdbn
 gen double dres2 = L2.dy_res

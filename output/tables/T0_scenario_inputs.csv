@@ -1,0 +1,25 @@
+code,scenario,h,mdate,dxy_pct,tb_shift_usdbn,flows_shift_idrtn
+Baseline,Baseline,1,2026m10,0,,
+Baseline,Baseline,2,2026m11,0,,
+Baseline,Baseline,3,2026m12,0,,
+Baseline,Baseline,4,2027m1,0,,
+Baseline,Baseline,5,2027m2,0,,
+Baseline,Baseline,6,2027m3,0,,
+Adverse,Adverse,1,2026m10,.330589032463724,,
+Adverse,Adverse,2,2026m11,.6622709560113016,,
+Adverse,Adverse,3,2026m12,.995049383620783,-1,-10
+Adverse,Adverse,4,2027m1,1.328927940214353,,
+Adverse,Adverse,5,2027m2,1.663910262697765,,
+Adverse,Adverse,6,2027m3,2.000000000000002,-1,-10
+Upside,Upside,1,2026m10,-.3361455501911248,,
+Upside,Upside,2,2026m11,-.6711611620731306,,
+Upside,Upside,3,2026m12,-1.005050633883342,1,9.999999999999998
+Upside,Upside,4,2027m1,-1.337817751091519,,
+Upside,Upside,5,2027m2,-1.669466286442689,,
+Upside,Upside,6,2027m3,-2.000000000000002,1,10
+Severe Adverse,Severe Adverse,1,2026m10,.8164846051901042,,
+Severe Adverse,Severe Adverse,2,2026m11,1.639635681485352,,
+Severe Adverse,Severe Adverse,3,2026m12,2.469507659595993,-2,-30
+Severe Adverse,Severe Adverse,4,2027m1,3.306155414650691,,
+Severe Adverse,Severe Adverse,5,2027m2,4.149634269825087,,
+Severe Adverse,Severe Adverse,6,2027m3,5.000000000000004,-2,-30

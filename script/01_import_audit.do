@@ -27,6 +27,14 @@ import excel using "$data_file", sheet("database_monthly") firstrow clear
 foreach v in year month mdate usdidr trade_bal_usdbn net_flows_idrtn fx_reserves_usdbn dxy ust10y_pct core_complete {
 	confirm numeric variable `v'
 }
+* rata-rata bulanan dari data harian (prediktor pasar BMA, v4.2)
+foreach v in usdidr_avg dxy_avg ust10y_avg {
+	cap confirm numeric variable `v'
+	if _rc {
+		di as error "Kolom `v' (rata-rata bulanan dari data harian) tidak ada di sheet database_monthly"
+		exit 111
+	}
+}
 sort mdate
 isid mdate
 assert mdate - mdate[_n-1] == 1 if _n > 1

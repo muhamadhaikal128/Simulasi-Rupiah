@@ -4,14 +4,14 @@ Forecast bulanan kurs USD/IDR untuk 6 bulan ke depan, lengkap dengan rentang ket
 skenario makro (Upside, Adverse, Severe Adverse). Diadaptasi dari
 `input/reference/Manual_Model_Rupiah_BVARX.Rmd` dan ditulis ulang di Stata (Mata + `bmaregress`).
 
-Hasil run terakhir (30 Okt 2026), anchor Sep 2026 = 17.870:
+Hasil run terakhir (2 Nov 2026, v4.2), anchor Sep 2026 = 17.870:
 
 | USD/IDR Mar 2027 | Median | Rentang 80% | vs Sep-26 |
 |:--|--:|:--|--:|
-| Baseline | 18.196 | 17.254 – 19.190 | +1,8% |
-| Upside | 17.924 | 16.996 – 18.903 | +0,3% |
-| Adverse | 18.465 | 17.509 – 19.473 | +3,3% |
-| Severe Adverse | 18.935 | 17.954 – 19.969 | +6,0% |
+| Baseline | 18.192 | 17.254 – 19.181 | +1,8% |
+| Upside | 17.920 | 16.996 – 18.894 | +0,3% |
+| Adverse | 18.461 | 17.509 – 19.464 | +3,3% |
+| Severe Adverse | 18.930 | 17.954 – 19.959 | +5,9% |
 
 ## 1. Cara kerja model
 
@@ -46,9 +46,9 @@ h bulan ke depan (h = 1, …, 6)?
 
    | Prediktor | Isi | Data bulan |
    |:--|:--|:--|
-   | `ds` | Perubahan USD/IDR bulan ini | t |
-   | `ddxy` | Perubahan DXY bulan ini | t |
-   | `dust` | Perubahan yield UST10Y bulan ini | t |
+   | `ds` | Perubahan rata-rata bulanan USD/IDR (dari data harian) | t |
+   | `ddxy` | Perubahan rata-rata bulanan DXY | t |
+   | `dust` | Perubahan rata-rata bulanan yield UST10Y | t |
    | `flow2` | Net flows asing (saham + SBN + SRBI) | t − 2 (jeda rilis) |
    | `tb2` | Trade balance | t − 2 |
    | `dres2` | Perubahan cadangan devisa | t − 2 |
@@ -118,7 +118,7 @@ Untuk setiap bulan dan skenario:
 > **Skenario = Baseline BMA × (median skenario BVARX ÷ median Baseline BVARX)**
 
 Contoh Mar 2027: di BVARX, Severe Adverse 4,06% di atas Baseline BVARX, sehingga
-Severe Adverse = 18.196 × 1,0406 = 18.935. Rentang skenario adalah rentang BMA yang digeser
+Severe Adverse = 18.192 × 1,0406 = 18.930. Rentang skenario adalah rentang BMA yang digeser
 dengan rasio yang sama.
 
 ## 2. Evaluasi
@@ -135,21 +135,21 @@ Hasil test baseline (BMA), `T17_hybrid_baseline_test`:
 
 | Horizon | Relative RMSE vs RW | Clark-West p | Arah benar | Coverage 80% | Coverage 95% |
 |:--|--:|--:|--:|--:|--:|
-| 1 bulan | 0,99 | 0,23 | 62% | 0,92 | 0,96 |
-| 3 bulan | 0,94 | 0,07 | 73% | 0,85 | 0,96 |
+| 1 bulan | 0,99 | 0,25 | 62% | 0,92 | 0,96 |
+| 3 bulan | 0,93 | 0,06 | 73% | 0,85 | 0,96 |
 | 6 bulan | 0,86 | **0,02** | 77% | 0,81 | 1,00 |
 
 Relative RMSE di bawah 1 berarti lebih akurat dari random walk. Keunggulan signifikan secara
-statistik di horizon 6 bulan (5%) dan lemah di 3 bulan (10%); coverage interval mendekati target.
+statistik di horizon 6 bulan (5%) dan hampir signifikan di 3 bulan (p 0,06); coverage interval mendekati target.
 
 ## 3. Keterbatasan
 
-1. **Periode test ikut memengaruhi desain.** Pilihan model changes, dummy, BMA, dan cara menyusun skenario
+1. **Periode test ikut memengaruhi desain.** Pilihan model changes, dummy, BMA, prediktor rata-rata bulanan, dan cara menyusun skenario
    diambil setelah melihat hasil test 2024–2026, sehingga angka test cenderung optimistis. Bukti yang
    bersih hanya dari data baru (Okt 2026 dst.) dengan spesifikasi yang dibekukan.
-2. **Keunggulan BMA terutama dari drift.** PIP semua prediktor sekitar 0,5 (sama dengan prior);
-   g = 0,25 menyusutkan koefisien sekitar 80%. Forecast BMA pada dasarnya drift depresiasi historis
-   ditambah sinyal kecil.
+2. **Keunggulan BMA terutama dari drift.** PIP prediktor sekitar 0,5 (sama dengan prior), kecuali
+   momentum kurs rata-rata bulanan (0,72 / 0,79 / 0,69 untuk h = 1 / 3 / 6); g = 0,25 menyusutkan
+   koefisien sekitar 80%. Forecast BMA pada dasarnya drift depresiasi historis ditambah sinyal kecil.
 3. **Skenario adalah overlay**: baseline BMA digeser dengan efek dari BVARX, dua model dengan struktur berbeda. Rentang skenario tidak memuat
    ketidakpastian dari jalur skenario itu sendiri.
 4. **Besaran shock skenario belum dikalibrasi** ke distribusi historis.
@@ -157,6 +157,8 @@ statistik di horizon 6 bulan (5%) dan lemah di 3 bulan (10%); coverage interval 
    (dipakai hanya untuk selisih skenario, bukan rentang).
 6. **Data latest vintage** (pseudo-real-time); baseline DXY datar; residual trade balance BVARX masih
    berautokorelasi.
+7. **Data harian** untuk kolom rata-rata bulanan (`usdidr_avg`, `dxy_avg`, `ust10y_avg`) diambil dari file
+   Bloomberg di luar repo; kolom itu perlu diperbarui manual setiap bulan.
 
 ## 4. Menjalankan
 

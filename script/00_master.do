@@ -154,7 +154,8 @@ global grid_dum "1"
 * suku bunga per bulan); 0/1 dipilih validation. uip_sd = sd prior (satuan terstandar)
 global grid_uip "0 1"
 global uip_sd 0.05
-* Bayesian Model Averaging (09_bma.do): regresi prediktif langsung, 6 prediktor, g-prior tetap
+* Bayesian Model Averaging (09_bma.do): regresi prediktif langsung, 6 prediktor, g-prior tetap.
+* ds, ddxy, dust = perubahan RATA-RATA bulanan (dari data harian; kolom *_avg di database_monthly), v4.2
 global run_bma 1
 global bma_preds "ds ddxy dust flow2 tb2 dres2"
 * g dikunci ke 0.25: terpilih di validation run 30 Okt 2026 18:05 dari grid 0.25/1/4/n

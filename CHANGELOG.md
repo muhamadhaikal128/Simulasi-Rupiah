@@ -203,3 +203,25 @@ Hasil run v3, 30 Okt 2026 14:53 (spesifikasi: start 2013, lag 2, lambda 0,1; N =
 - Eksperimen BMA di luar repo (scratchpad, 2 Nov 2026): prediktor disamakan dengan BVARX. Tanpa UST
   (32 model) rata-rata relative RMSE 0,954; dengan lag kedua seperti BVARX (512 model) 0,955; base
   (6 prediktor) 0,950. Forecast Mar 2027 18.185 / 18.220 vs 18.196. BMA base dipertahankan.
+
+## v4.2 — 2 Nov 2026: prediktor pasar BMA dari rata-rata bulanan
+
+- `database_monthly`: kolom baru `usdidr_avg`, `dxy_avg`, `ust10y_avg` = rata-rata bulanan data harian
+  Bloomberg (USD/IDR IDR REGN, DXY, USGG10YR; semua baris harian dalam bulan). Sumber dicatat di sheet
+  `sources`. September 2026 = rata-rata 1–22 Sep (data harian terakhir).
+- `09_bma.do`: `ds`, `ddxy`, `dust` kini perubahan rata-rata bulanan (sebelumnya nilai akhir bulan).
+  Target tetap kurs akhir bulan. BVARX tidak berubah.
+- `01_import_audit.do`: berhenti dengan pesan jelas jika kolom rata-rata tidak ada.
+- Alasan (uji scratchpad, target tetap kurs akhir bulan): rata-rata relative RMSE validation + test
+  0,944 vs 0,950, lebih baik di 6/6 kombinasi periode × horizon. Dipilih setelah melihat test.
+- Hasil run v4.2, 2 Nov 2026 13:13 (pertama kali juga menjalankan v4.1/v4.1.1 penuh): test BMA
+  relative RMSE 0,987 / 0,934 / 0,857, Clark-West p 0,25 / 0,056 / 0,020, coverage 80% 0,92 / 0,85 /
+  0,81; validation 0,982 / 0,977 / 0,924. PIP perubahan kurs 0,72 / 0,79 / 0,69. USD/IDR Mar 2027:
+  Baseline 18.192 [17.254–19.181], Upside 17.920, Adverse 18.461, Severe Adverse 18.930
+  [17.954–19.959]. Rasio skenario BVARX, ESS, dan input skenario (`T0_scenario_inputs`) identik
+  dengan v4.
+- Eksperimen lain di scratchpad (tidak dipakai): prediktor tambahan dari data harian (premi NDF 1M,
+  selisih akhir bulan vs rata-rata, perubahan CDS 5Y) dihentikan sebelum selesai atas keputusan
+  pengguna. ARIMA(p,1,q), p,q ≤ 2, dengan drift: validation memilih ARIMA(1,1,1) (skor 0,866) tetapi
+  test 1,03 / 1,01 / 1,06; estimasi akhir MA = −1,00 (batas non-invertible), forecast Mar 2027 17.321.
+  ARIMA(0,1,2) terbaik di test (0,906) tetapi hanya peringkat 4 di validation. BMA dipertahankan.

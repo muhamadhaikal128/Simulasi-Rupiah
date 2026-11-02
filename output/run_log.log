@@ -2,10 +2,10 @@
       name:  main
        log:  C:\Users\LENOVO05\github\Simulasi-Rupiah\output\run_log.log
   log type:  text
- opened on:  30 Oct 2026, 18:47:13
+ opened on:   2 Nov 2026, 13:11:43
 
 . di "Mulai: `c(current_date)' `c(current_time)'  profile=$profile"
-Mulai: 30 Oct 2026 18:47:13  profile=standard
+Mulai:  2 Nov 2026 13:11:43  profile=standard
 
 . timer clear 1
 
@@ -62,11 +62,20 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\flow_components.dta s
 . 
 . **## 1.2 Sheet database_monthly dan pemeriksaan struktur
 . import excel using "$data_file", sheet("database_monthly") firstrow clear
-(25 vars, 165 obs)
+(28 vars, 165 obs)
 
 . foreach v in year month mdate usdidr trade_bal_usdbn net_flows_idrtn fx_reserves_usdbn dxy ust10y_pct core_complete {
   2.         confirm numeric variable `v'
   3. }
+
+. * rata-rata bulanan dari data harian (prediktor pasar BMA, v4.2)
+. foreach v in usdidr_avg dxy_avg ust10y_avg {
+  2.         cap confirm numeric variable `v'
+  3.         if _rc {
+  4.                 di as error "Kolom `v' (rata-rata bulanan dari data harian) tidak ada di sheet database_monthly"
+  5.                 exit 111
+  6.         }
+  7. }
 
 . sort mdate
 
@@ -697,10 +706,12 @@ end of do-file
 . **## 2.3 Jalur masa depan dan conditional forecast (Rmd: make_future, forecast_system, predict_paths)
 . mata:
 ------------------------------------------------- mata (type end to exit) ----------------------------------------------
-: // Jalur eksogen dari cutoff+1 sampai origin+h. DXY menuju (1+g) pada akhir horizon, UST +du.
+: // Jalur eksogen dari cutoff+1 sampai origin+h, UST +du.
+: // g skalar: DXY menuju (1+g) pada akhir horizon (jalur geometrik).
+: // g vektor h x 1: DXY bulan ke-k setelah origin = DXY origin x (1 + g[k]) (sheet scenario_inputs).
 : // Bulan s/d origin memakai realisasi DXY/UST dan USD/IDR sebagai kondisi bridge.
 : struct bvfut scalar bv_future(struct bvfit scalar f, struct bvdata scalar d, real scalar origin,
->         real scalar h, real scalar g, real scalar du)
+>         real scalar h, real colvector g, real scalar du)
 > {
 >         struct bvfut scalar u
 >         real colvector frac, known, logdxy, xd, mon, ix
@@ -715,7 +726,14 @@ end of do-file
 >         r0 = bv_row(d, origin)
 >         if (missing(d.dxy[r0])) _error("DXY tidak tersedia pada origin")
 >         frac  = ((u.times :- origin) :* (u.times :> origin)) / h
->         u.dxy = d.dxy[r0] :* (1 + g):^frac
+>         if (rows(g) == 1) u.dxy = d.dxy[r0] :* (1 + g):^frac
+>         else {
+>                 if (rows(g) != h | hasmissing(g)) _error("jalur DXY harus berisi h nilai tanpa missing")
+>                 u.dxy = J(H, 1, d.dxy[r0])
+>                 for (i = 1; i <= H; i++) {
+>                         if (u.times[i] > origin) u.dxy[i] = d.dxy[r0]*(1 + g[u.times[i] - origin])
+>                 }
+>         }
 >         u.ust = d.ust[r0] :+ du :* frac
 >         // selisih suku bunga ke depan: tetap di nilai origin (bulan teramati memakai realisasi)
 >         rate  = J(H, 1, d.rate[r0])
@@ -1037,17 +1055,17 @@ note: variable root may be used before set.
 > }
 
 : 
-: // Kondisi skenario: TB dan flows = median baseline + (dtb, dfl) pada horizon chz
-: real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scalar cutoff, real rowvector chz, real sca
-> lar dtb, real scalar dfl)
+: // Kondisi skenario dari sheet scenario_inputs. sc: baris (h, geser TB USD bn, geser flows Rp tn);
+: // missing = bulan itu tidak dikunci. Nilai kondisi = median Baseline BVARX + geser (flows model = Rp10 tn).
+: real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scalar cutoff, real matrix sc)
 > {
 >         real matrix X
 >         real scalar i, s
 >         X = J(0, 3, .)
->         for (i = 1; i <= cols(chz); i++) {
->                 s = origin + chz[i] - cutoff
->                 X = X \ (s, 2, bv_median_path(pb, s, 2, 4) + dtb)
->                 X = X \ (s, 3, bv_median_path(pb, s, 3, 4) + dfl/10)
+>         for (i = 1; i <= rows(sc); i++) {
+>                 s = origin + sc[i, 1] - cutoff
+>                 if (!missing(sc[i, 2])) X = X \ (s, 2, bv_median_path(pb, s, 2, 4) + sc[i, 2])
+>                 if (!missing(sc[i, 3])) X = X \ (s, 3, bv_median_path(pb, s, 3, 4) + sc[i, 3]/10)
 >         }
 >         return(X)
 > }
@@ -1073,17 +1091,18 @@ note: variable root may be used before set.
 > }
 
 : 
-: // shock = matriks 3 x 3: baris = skenario Adverse, Upside, Severe Adverse; kolom = (pertumbuhan DXY, delta TB USD bn,
->  delta flows Rp tn)
+: // SC = input skenario (sheet scenario_inputs), satu baris per skenario x bulan, terurut skenario lalu h:
+: // kolom (kode skenario 1 Baseline / 2 Adverse / 3 Upside / 4 Severe Adverse, h, DXY kumulatif vs origin
+: // dalam pecahan, geser TB USD bn, geser flows Rp tn). Tiap skenario punya h = 1..H lengkap.
 : void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar l
-> ambda, real scalar inc_ust, real scalar nd, real matrix shock, real rowvector chz, real scalar soc)
+> ambda, real scalar inc_ust, real scalar nd, real matrix SC, real scalar soc)
 > {
 >         external struct bvdata scalar D
 >         external real matrix FIN_resid, FIN_tab, FIN_diag, FIN_cond, FIN_glob, FIN_vars, FIN_info, FIN_dxy, FIN_vix
 >         struct bvfit scalar f
 >         struct bvfut scalar ub, u
 >         struct bvpred scalar pb, ps
->         real matrix xc, xs, bridge
+>         real matrix xc, xs, bridge, S
 >         real rowvector fsteps
 >         real colvector known
 >         real scalar i, j, r, k
@@ -1096,7 +1115,9 @@ note: variable root may be used before set.
 >         FIN_vix = J(0, 3, .)
 >         if (any(f.xc :== 8)) FIN_vix = bv_x_effect(f, selectindex(f.xc :== 8))
 > 
->         ub = bv_future(f, D, origin, H, 0, 0)
+>         S = select(SC, SC[., 1] :== 1)
+>         if (rows(S) != H) _error("sheet skenario: Baseline harus berisi h = 1.." + strofreal(H))
+>         ub = bv_future(f, D, origin, H, S[., 3], 0)
 >         // Bridge makro yang sudah tersedia di snapshot (variabel 2..4)
 >         known = selectindex(ub.times :<= origin)
 >         for (i = 1; i <= rows(known); i++) {
@@ -1115,15 +1136,18 @@ note: variable root may be used before set.
 >         FIN_diag = (1, pb.ess, pb.ess/nd, pb.root_gt1, pb.root_gt105)
 >         xc = J(rows(bridge), 1, 0), bridge
 >         FIN_glob = ub.times, ub.dxy
->         for (k = 1; k <= rows(shock); k++) {
->                 xs = bv_scen_cond(pb, origin, f.cutoff, chz, shock[k, 2], shock[k, 3])
->                 u = bv_future(f, D, origin, H, shock[k, 1], 0)
+>         for (k = 2; k <= 4; k++) {
+>                 S = select(SC, SC[., 1] :== k)
+>                 if (rows(S) != H) _error("sheet skenario: skenario " + strofreal(k) + " harus berisi h = 1.." + strofr
+> eal(H))
+>                 xs = bv_scen_cond(pb, origin, f.cutoff, S[., (2, 4, 5)])
+>                 u = bv_future(f, D, origin, H, S[., 3], 0)
 >                 u.cond = bridge
 >                 ps = bv_predict(f, u, nd, xs, 40001)
->                 FIN_tab  = FIN_tab \ (J(cols(fsteps), 1, k+1), bv_summary(ps, fsteps))
->                 FIN_vars = FIN_vars \ bv_paths_median(ps, fsteps, k+1, f.mode)
->                 FIN_diag = FIN_diag \ (k+1, ps.ess, ps.ess/nd, ps.root_gt1, ps.root_gt105)
->                 xc = xc \ (J(rows(xs), 1, k+1), xs)
+>                 FIN_tab  = FIN_tab \ (J(cols(fsteps), 1, k), bv_summary(ps, fsteps))
+>                 FIN_vars = FIN_vars \ bv_paths_median(ps, fsteps, k, f.mode)
+>                 FIN_diag = FIN_diag \ (k, ps.ess, ps.ess/nd, ps.root_gt1, ps.root_gt105)
+>                 xc = xc \ (J(rows(xs), 1, k), xs)
 >                 FIN_glob = FIN_glob, u.dxy
 >         }
 >         // Kondisi: (scen, step, mdate, variabel, nilai model); scen 0 = bridge (dipakai semua skenario)
@@ -1756,15 +1780,154 @@ end of do-file
 . * Bulan di antara cutoff dan anchor dijembatani dengan observasi yang sudah ada di snapshot
 . * (USD/IDR, flows, cadangan; TB September kosong dibiarkan tak teramati). Aturan bridge makro
 . * ini hanya untuk forecast akhir, TIDAK dipakai dalam backtest.
-. * Model = global model_mode (changes). Skenario ilustratif (bukan shock struktural),
-. * besaran di 00_master.do: pada h = 3 dan 6, TB dan flows digeser terhadap median baseline, dan DXY
-. * menuju (1 + g) pada akhir horizon. 2 Adverse, 3 Upside, 4 Severe Adverse.
-. * Menulis: intermediate/final_residuals.dta, scenario_*.dta
-. * Output:  tables/T7_baseline, T8_scenarios, T9_scenario_paths_all, T10_scenario_inputs,
-. *          T11_global_paths; diagnostics/D3_residual_tests, D4_residual_corr, D5_scenario_ess_roots,
-. *          D6_dxy_effect;
+. * Model = global model_mode (changes). Skenario ilustratif (bukan shock struktural).
+. * Input skenario per bulan dari sheet scenario_inputs di Database_Rupiah_Bulanan.xlsx:
+. * DXY kumulatif vs anchor (%), dan geser TB / flows terhadap median baseline pada bulan yang diisi.
+. * 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse.
+. * Menulis: intermediate/scenario_inputs_used.dta, final_residuals.dta, scenario_*.dta
+. * Output:  tables/T0_scenario_inputs, T7_baseline, T8_scenarios, T9_scenario_paths_all,
+. *          T10_scenario_inputs, T11_global_paths; diagnostics/D3_residual_tests, D4_residual_corr,
+. *          D5_scenario_ess_roots, D6_dxy_effect;
 . *          T14_scenario_summary; figures/6_residual_acf.png, 6_scenarios_fan.png,
 . *          6_scenario_macro.png, 6_scenario_table.png
+. 
+. **## 6.1 Input skenario (sheet $scen_sheet)
+. * Kolom A-E: scenario, h, dxy_pct, tb_shift_usdbn, flows_shift_idrtn. Sel kosong TB/flows = tidak dikunci.
+. * cellrange(A1) = dari A1 sampai akhir data (rentang tetap seperti A1:E200 ditolak Stata jika melewati data)
+. import excel using "$data_file", sheet("$scen_sheet") cellrange(A1) firstrow case(lower) clear
+(15 vars, 24 obs)
+
+. cap confirm variable scenario h dxy_pct tb_shift_usdbn flows_shift_idrtn
+
+. if _rc {
+.         di as error "Sheet $scen_sheet harus punya kolom scenario, h, dxy_pct, tb_shift_usdbn, flows_shift_idrtn"
+.         exit 111
+. }
+
+. keep scenario h dxy_pct tb_shift_usdbn flows_shift_idrtn
+
+. cap confirm string variable scenario
+
+. if _rc tostring scenario, replace
+
+. replace scenario = strtrim(scenario)
+(0 real changes made)
+
+. drop if scenario == "" & missing(h)
+(0 observations deleted)
+
+. * kolom yang seluruhnya kosong terbaca sebagai string
+. foreach v in h dxy_pct tb_shift_usdbn flows_shift_idrtn {
+  2.         cap confirm numeric variable `v'
+  3.         if _rc destring `v', replace
+  4. }
+
+. gen byte code = 1*(lower(scenario) == "baseline") + 2*(lower(scenario) == "adverse") ///
+>         + 3*(lower(scenario) == "upside") + 4*(lower(scenario) == "severe adverse")
+
+. qui count if code == 0
+
+. if r(N) {
+.         list scenario if code == 0, noobs
+.         di as error "Nama skenario harus Baseline, Adverse, Upside, atau Severe Adverse"
+.         exit 198
+. }
+
+. qui count if missing(h) | h != round(h) | h < 1 | h > $H_final
+
+. if r(N) {
+.         di as error "Kolom h harus bilangan bulat 1 sampai $H_final"
+.         exit 198
+. }
+
+. qui count if missing(dxy_pct)
+
+. if r(N) {
+.         di as error "dxy_pct wajib diisi untuk semua skenario dan bulan"
+.         exit 198
+. }
+
+. qui duplicates report code h
+
+. if r(unique_value) != r(N) | r(N) != 4*$H_final {
+.         di as error "Sheet $scen_sheet harus berisi tepat satu baris untuk tiap skenario x h = 1..$H_final (total `=4*
+> $H_final' baris)"
+.         exit 198
+. }
+
+. qui count if code == 1 & (!missing(tb_shift_usdbn) | !missing(flows_shift_idrtn))
+
+. if r(N) {
+.         di as text "Catatan: TB/flows pada baris Baseline diabaikan (Baseline tidak dikunci)."
+.         replace tb_shift_usdbn = . if code == 1
+.         replace flows_shift_idrtn = . if code == 1
+. }
+
+. gen double dxy_frac = dxy_pct/100
+
+. sort code h
+
+. * bulan yang dikunci (TB atau flows) untuk label grafik
+. qui levelsof h if !missing(tb_shift_usdbn) | !missing(flows_shift_idrtn), local(ch) separate(,)
+
+. global cond_steps "`ch'"
+
+. gen mdate = $final_origin + h
+
+. format mdate %tm
+
+. mata: SCN = st_data(., ("code", "h", "dxy_frac", "tb_shift_usdbn", "flows_shift_idrtn"))
+
+. label define scen 1 "Baseline" 2 "Adverse" 3 "Upside" 4 "Severe Adverse", replace
+
+. label values code scen
+
+. keep code scenario h mdate dxy_pct tb_shift_usdbn flows_shift_idrtn
+
+. order code scenario h mdate
+
+. list, noobs sepby(code)
+
+  +-------------------------------------------------------------------------------+
+  |           code         scenario   h     mdate   dxy_pct   tb_shi~n   flows_~n |
+  |-------------------------------------------------------------------------------|
+  |       Baseline         Baseline   1   2026m10      0.00          .          . |
+  |       Baseline         Baseline   2   2026m11      0.00          .          . |
+  |       Baseline         Baseline   3   2026m12      0.00          .          . |
+  |       Baseline         Baseline   4    2027m1      0.00          .          . |
+  |       Baseline         Baseline   5    2027m2      0.00          .          . |
+  |       Baseline         Baseline   6    2027m3      0.00          .          . |
+  |-------------------------------------------------------------------------------|
+  |        Adverse          Adverse   1   2026m10      0.33          .          . |
+  |        Adverse          Adverse   2   2026m11      0.66          .          . |
+  |        Adverse          Adverse   3   2026m12      1.00         -1        -10 |
+  |        Adverse          Adverse   4    2027m1      1.33          .          . |
+  |        Adverse          Adverse   5    2027m2      1.66          .          . |
+  |        Adverse          Adverse   6    2027m3      2.00         -1        -10 |
+  |-------------------------------------------------------------------------------|
+  |         Upside           Upside   1   2026m10     -0.34          .          . |
+  |         Upside           Upside   2   2026m11     -0.67          .          . |
+  |         Upside           Upside   3   2026m12     -1.01          1         10 |
+  |         Upside           Upside   4    2027m1     -1.34          .          . |
+  |         Upside           Upside   5    2027m2     -1.67          .          . |
+  |         Upside           Upside   6    2027m3     -2.00          1         10 |
+  |-------------------------------------------------------------------------------|
+  | Severe Adverse   Severe Adverse   1   2026m10      0.82          .          . |
+  | Severe Adverse   Severe Adverse   2   2026m11      1.64          .          . |
+  | Severe Adverse   Severe Adverse   3   2026m12      2.47         -2        -30 |
+  | Severe Adverse   Severe Adverse   4    2027m1      3.31          .          . |
+  | Severe Adverse   Severe Adverse   5    2027m2      4.15          .          . |
+  | Severe Adverse   Severe Adverse   6    2027m3      5.00         -2        -30 |
+  +-------------------------------------------------------------------------------+
+
+. save "$data\scenario_inputs_used.dta", replace
+(file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_inputs_used.dta not found)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_inputs_used.dta saved
+
+. bv_out tab "T0_scenario_inputs"
+(file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T0_scenario_inputs.csv not found)
+file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T0_scenario_inputs.csv saved
+
 . 
 . **## 6.2 Jalankan fit akhir dan skenario
 . use "$data\database.dta", clear
@@ -1772,7 +1935,7 @@ end of do-file
 . mata: D = bv_load("$model_mode")
 
 . mata: bv_final_run($latest_complete, $final_origin, $H_final, $best_start, $best_p, $best_lambda, ///
->         $best_ust, $n_final, $shock_mat, strtoreal(tokens(st_global("cond_horizons"))), 0)
+>         $best_ust, $n_final, SCN, 0)
 
 . mata: st_global("fin_n", strofreal(FIN_info[1])); st_global("fin_from", strofreal(FIN_info[2]))
 
@@ -2259,7 +2422,8 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\komponen_bvarx\6_sc
 . 
 . **## 6.6 Asumsi makro per skenario: DXY, trade balance, flows (grafik + tabel ringkas)
 . * DXY: jalur eksogen yang diasumsikan. TB dan flows: median jalur model; pada Adverse/Upside/Severe
-. * Adverse nilainya dikunci di h = 3 dan 6 (titik berlabel), bulan lain mengikuti model.
+. * Adverse nilainya dikunci di bulan yang diisi pada sheet skenario (titik berlabel, ditambah bulan
+. * terakhir), bulan lain mengikuti model.
 . use "$data\scenario_global_paths.dta", clear
 
 . rename (dxy_baseline dxy_adverse dxy_upside dxy_severe) (dxy1 dxy2 dxy3 dxy4)
@@ -2305,7 +2469,10 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000006.tmp saved as .dta forma
 
 . sort scenario mdate
 
-. gen byte lab_pt = inlist(mdate, $final_origin + 3, $final_origin + 6)
+. gen byte lab_pt = mdate == $final_origin + $H_final
+
+. if "$cond_steps" != "" replace lab_pt = 1 if inlist(mdate - $final_origin, $cond_steps)
+(4 real changes made)
 
 . foreach v in dxy tb flows {
   2.         gen str8 l_`v' = string(`v', "%5.1f") if lab_pt
@@ -2346,8 +2513,8 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\scenario_macro_paths.
 >         title("Asumsi makro per skenario", size(medium)) ///
 >         note("Garis: Baseline = biru utuh; Adverse = oranye putus-putus; Upside = hijau titik-titik; Severe Adverse = 
 > merah putus panjang." ///
->                 "Angka berlabel = nilai pada h = 3 dan 6 bulan (dikunci pada skenario non-baseline). TB dan flows Base
-> line = median model.", size(vsmall)) ///
+>                 "Angka berlabel = bulan yang dikunci di sheet skenario (h = $cond_steps) dan bulan terakhir. TB dan fl
+> ows Baseline = median model.", size(vsmall)) ///
 >         name(scen_macro, replace)
 
 . graph save "$gph\6_scenario_macro.gph", replace
@@ -2430,25 +2597,32 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000009.tmp saved as .dta forma
 
 . keep scenario dxy_pct6 tb3 tb6 flows3 flows6 usdidr3 usdidr6 lower80 upper80 pct_vs_anchor6
 
-. label var dxy_pct6 "DXY Mar-27 vs Sep-26 (%)"
+. * label bulan mengikuti anchor (h = 3 dan h = 6)
+. local m0 : di %tmMon_YY $final_origin
 
-. label var tb3 "TB Des-26 (USD bn)"
+. local m3 : di %tmMon_YY $final_origin + 3
 
-. label var tb6 "TB Mar-27 (USD bn)"
+. local m6 : di %tmMon_YY $final_origin + 6
 
-. label var flows3 "Flows Des-26 (Rp tn)"
+. label var dxy_pct6 "DXY `m6' vs `m0' (%)"
 
-. label var flows6 "Flows Mar-27 (Rp tn)"
+. label var tb3 "TB `m3' (USD bn)"
 
-. label var usdidr3 "USD/IDR Des-26 (median)"
+. label var tb6 "TB `m6' (USD bn)"
 
-. label var usdidr6 "USD/IDR Mar-27 (median)"
+. label var flows3 "Flows `m3' (Rp tn)"
 
-. label var lower80 "USD/IDR Mar-27 batas bawah 80%"
+. label var flows6 "Flows `m6' (Rp tn)"
 
-. label var upper80 "USD/IDR Mar-27 batas atas 80%"
+. label var usdidr3 "USD/IDR `m3' (median)"
 
-. label var pct_vs_anchor6 "Mar-27 vs Sep-26 (%)"
+. label var usdidr6 "USD/IDR `m6' (median)"
+
+. label var lower80 "USD/IDR `m6' batas bawah 80%"
+
+. label var upper80 "USD/IDR `m6' batas atas 80%"
+
+. label var pct_vs_anchor6 "`m6' vs `m0' (%)"
 
 . format dxy_pct6 tb* flows* pct_vs_anchor6 %6.1f
 
@@ -2472,10 +2646,10 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T14_scenario_summary
 . * Render tabel sebagai PNG (teks pada kanvas grafik)
 . local cx "3 22 33 44 55 66 79 94"
 
-. local heads `""Skenario" "DXY Mar-27" "TB Des-26" "TB Mar-27" "Flows Des-26" "Flows Mar-27" "USD/IDR Des-26" "USD/IDR 
-> Mar-27 (80%)""'
+. local heads `""Skenario" "DXY `m6'" "TB `m3'" "TB `m6'" "Flows `m3'" "Flows `m6'" "USD/IDR `m3'" "USD/IDR `m6' (80%)""
+> '
 
-. local units `""" "vs Sep-26" "USD bn" "USD bn" "Rp tn" "Rp tn" "median" "median [rentang]""'
+. local units `""" "vs `m0'" "USD bn" "USD bn" "Rp tn" "Rp tn" "median" "median [rentang]""'
 
 . local txt ""
 
@@ -2507,10 +2681,10 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T14_scenario_summary
 
 . twoway scatteri 0 0 100 100, msymbol(none) xscale(off range(0 120)) yscale(off range(0 100)) ///
 >         xlabel(none) ylabel(none) `txt' ///
->         yline(80, lcolor(gs10)) title("Ringkasan skenario USD/IDR (model $model_mode, anchor Sep-26 = `=strtrim(string
-> ($anchor_spot, "%9.0fc"))')", size(medium)) ///
->         note("TB dan flows pada Adverse/Upside/Severe Adverse = median Baseline +/- shock (00_master.do). Rentang = in
-> terval prediktif 80%.", size(vsmall)) ///
+>         yline(80, lcolor(gs10)) title("Ringkasan skenario USD/IDR (model $model_mode, anchor `m0' = `=strtrim(string($
+> anchor_spot, "%9.0fc"))')", size(medium)) ///
+>         note("TB dan flows pada Adverse/Upside/Severe Adverse = median Baseline + geser (sheet $scen_sheet). Rentang =
+>  interval prediktif 80%.", size(vsmall)) ///
 >         graphregion(color(white)) plotregion(style(none)) xsize(13) ysize(4) legend(off) name(scen_table, replace)
 
 . graph save "$gph\6_scenario_table.gph", replace
@@ -2547,8 +2721,8 @@ xij variables:
 . sort mdate
 
 . bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig_bvarx\6_forecast_table.png") ///
->         title("Forecast USD/IDR per skenario: median [rentang 80%] (model $model_mode, anchor Sep 2026 = `=strtrim(str
-> ing($anchor_spot, "%9.0fc"))')") ///
+>         title("Forecast USD/IDR per skenario: median [rentang 80%] (model $model_mode, anchor `: di %tmMon_CCYY $final
+> _origin' = `=strtrim(string($anchor_spot, "%9.0fc"))')") ///
 >         heads("Bulan" "Baseline" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
 >         note("Asumsi skenario: lihat 6_scenario_macro.png dan 6_scenario_table.png. Rentang = interval prediktif 80% (
 > posterior predictive).")
@@ -2570,20 +2744,19 @@ end of do-file
 
 . local items profile seed n_val n_test n_final horizons release_lag ///
 >         grid_start grid_p grid_lambda grid_ust grid_rate grid_vix grid_dum grid_uip uip_sd best_start best_p best_lamb
-> da best_ust best_rate best_vix best_dum best_uip outlier_months H_final model_mode seas_harm tb_prior_mean cond_horizo
-> ns ///
->         dxy_shock tb_shock flows_shock dxy_severe tb_severe flows_severe
+> da best_ust best_rate best_vix best_dum best_uip outlier_months H_final model_mode seas_harm tb_prior_mean scen_sheet 
+> cond_steps
 
 . local n : word count `items'
 
 . set obs `=`n'+6'
-Number of observations (_N) was 0, now 42.
+Number of observations (_N) was 0, now 37.
 
 . gen str24 setting = ""
-(42 missing values generated)
+(37 missing values generated)
 
 . gen str60 value = ""
-(42 missing values generated)
+(37 missing values generated)
 
 . local i 0
 
@@ -2592,16 +2765,6 @@ Number of observations (_N) was 0, now 42.
   3.         replace setting = "`s'" in `i'
   4.         replace value = "${`s'}" in `i'
   5. }
-(1 real change made)
-(1 real change made)
-(1 real change made)
-(1 real change made)
-(1 real change made)
-(1 real change made)
-(1 real change made)
-(1 real change made)
-(1 real change made)
-(1 real change made)
 (1 real change made)
 (1 real change made)
 (1 real change made)
@@ -2745,19 +2908,14 @@ Number of observations (_N) was 0, now 42.
             model_mode                         changes  
              seas_harm                               2  
          tb_prior_mean                             0.7  
-         cond_horizons                             3 6  
-             dxy_shock                            0.02  
-              tb_shock                               1  
-           flows_shock                              10  
-            dxy_severe                            0.05  
-             tb_severe                               2  
-          flows_severe                              30  
+            scen_sheet                 scenario_inputs  
+            cond_steps                             3,6  
     validation_origins                2021m1 -  2023m6  
           test_origins                2024m1 -  2026m2  
        latest_complete                          2026m8  
           final_origin                          2026m9  
          stata_version                         19.5 MP  
-              run_date            30 Oct 2026 18:48:21  
+              run_date             2 Nov 2026 13:13:00  
 
 . bv_out tab "S0_settings"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/S0_settings.csv saved
@@ -3189,10 +3347,12 @@ end of do-file
 
 . **# 9. BAYESIAN MODEL AVERAGING (bmaregress) VS RANDOM WALK TANPA DRIFT
 . * Regresi prediktif langsung per horizon h: y_h(t) = 100*[log S(t+h) - log S(t)] pada prediktor
-. * yang diketahui di akhir bulan t. 6 kandidat (2^6 = 64 model, enumerasi penuh):
-. *   ds    perubahan 100 log USD/IDR bulan t          (pasar, bulan t)
-. *   ddxy  perubahan 100 log DXY bulan t              (pasar, bulan t)
-. *   dust  perubahan UST10Y bulan t (pp)               (pasar, bulan t)
+. * yang diketahui di akhir bulan t. Target tetap kurs AKHIR bulan. 6 kandidat (2^6 = 64 model):
+. *   ds    perubahan 100 log rata-rata bulanan USD/IDR, bulan t   (pasar, rata-rata harian)
+. *   ddxy  perubahan 100 log rata-rata bulanan DXY, bulan t       (pasar, rata-rata harian)
+. *   dust  perubahan rata-rata bulanan UST10Y, bulan t (pp)        (pasar, rata-rata harian)
+. *   (v4.2: rata-rata bulanan dari data harian menggantikan nilai akhir bulan; uji scratchpad
+. *    2 Nov 2026: rata-rata relative RMSE 0,944 vs 0,950, lebih baik di 6/6 periode x horizon)
 . *   flow2 net flows bulan t-2 (Rp10 tn)               (jeda rilis 2 bulan)
 . *   tb2   trade balance bulan t-2 (USD bn)            (jeda rilis 2 bulan)
 . *   dres2 perubahan 100 log cadangan bulan t-2        (jeda rilis 2 bulan)
@@ -3215,13 +3375,14 @@ end of do-file
 Time variable: mdate, 2013m1 to 2026m9
         Delta: 1 month
 
-. gen double ds    = dy_s
+. * prediktor pasar dari rata-rata bulanan (kolom usdidr_avg, dxy_avg, ust10y_avg di database_monthly)
+. gen double ds    = 100*(ln(usdidr_avg) - ln(L.usdidr_avg))
 (1 missing value generated)
 
-. gen double ddxy  = dx_dxy
+. gen double ddxy  = 100*(ln(dxy_avg) - ln(L.dxy_avg))
 (1 missing value generated)
 
-. gen double dust  = D.ust10y_pct
+. gen double dust  = D.ust10y_avg
 (1 missing value generated)
 
 . gen double flow2 = L2.net_flows_idrtn/10
@@ -3440,7 +3601,7 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000002.tmp saved as .dta forma
 . list, noobs clean
 
        g   score   rrmse_h1   rrmse_h3   rrmse_h6   eligible   chosen  
-    0.25   0.968      0.995      0.978      0.933          1        1  
+    0.25   0.961      0.982      0.977      0.924          1        1  
 
 . bv_out tab "B1_bma_validation_g"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/B1_bma_validation_g.csv saved
@@ -3488,9 +3649,9 @@ file C:\Users\LENOVO05\AppData\Local\Temp\ST_ce80_000003.tmp saved as .dta forma
   +------------------------------------------------------------------------------------------+
   | horizon    n   rmse_bma   rmse_rw   relati~e   direct~n   dm_hln    dm_p    cw_t    cw_p |
   |------------------------------------------------------------------------------------------|
-  |       1   26      255.0     257.4      0.991      0.615   -0.383   0.705   0.723   0.235 |
-  |       3   26      513.0     544.3      0.943      0.731   -0.958   0.347   1.457   0.073 |
-  |       6   26      588.4     683.8      0.860      0.769   -1.073   0.294   2.022   0.022 |
+  |       1   26      254.1     257.4      0.987      0.615   -0.417   0.680   0.681   0.248 |
+  |       3   26      508.4     544.3      0.934      0.731   -1.098   0.283   1.593   0.056 |
+  |       6   26      586.0     683.8      0.857      0.769   -1.102   0.281   2.046   0.020 |
   +------------------------------------------------------------------------------------------+
 
 . save "$data\bma_test_scores.dta", replace
@@ -3522,9 +3683,9 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/B2_bma_test_scores.c
 . list, noobs clean
 
     horizon   relati~x   relati~a  
-          1      1.051      0.991  
-          3      1.042      0.943  
-          6      0.982      0.860  
+          1      1.051      0.987  
+          3      1.042      0.934  
+          6      0.982      0.857  
 
 . bv_out tab "B3_bma_vs_bvarx"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/B3_bma_vs_bvarx.csv saved
@@ -3597,29 +3758,30 @@ Model summary            Number of models:
              |   Analytical PMP     Model size
 -------------+--------------------------------
 Rank         |
-           1 |            .0185              2
-           2 |           .01842              1
-           3 |           .01802              2
-           4 |           .01801              0
-           5 |           .01784              3
-           6 |           .01757              1
-           7 |           .01725              3
-           8 |           .01708              1
-           9 |           .01705              2
-          10 |           .01704              2
+           1 |           .03216              2
+           2 |           .02929              3
+           3 |           .02905              3
+           4 |           .02892              3
+           5 |           .02891              3
+           6 |           .02653              4
+           7 |           .02649              4
+           8 |           .02642              4
+           9 |           .02638              4
+          10 |           .02615              4
 ----------------------------------------------
 
 Variable-inclusion summary
---------------------------------------------------------------------------------------------------------
-             |   Rank      Rank      Rank      Rank      Rank      Rank      Rank      Rank      Rank   
-             |     1         2         3         5         6         7         8         9        10    
--------------+------------------------------------------------------------------------------------------
-          ds |     x                   x         x         x         x    
-        dust |     x         x                   x                   x                   x         x    
-        ddxy |                         x         x                             x    
-         tb2 |                                                       x                   x    
-       dres2 |                                                                                     x    
---------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------
+             |   Rank      Rank      Rank      Rank      Rank      Rank      Rank      Rank      Rank      Rank   
+             |     1         2         3         4         5         6         7         8         9        10    
+-------------+----------------------------------------------------------------------------------------------------
+          ds |     x         x         x         x         x         x         x         x         x         x    
+        ddxy |     x         x         x         x         x         x         x         x         x         x    
+        dust |               x                                                 x         x         x    
+       dres2 |                         x                             x                   x                   x    
+       flow2 |                                   x                   x                             x    
+         tb2 |                                             x                   x                             x    
+------------------------------------------------------------------------------------------------------------------
 Legend:
   x - estimated
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/B6_bma_top_models_h1.csv saved
@@ -3637,16 +3799,16 @@ Model summary            Number of models:
              |   Analytical PMP     Model size
 -------------+--------------------------------
 Rank         |
-           1 |           .03312              4
-           2 |           .03026              5
-           3 |              .03              3
-           4 |           .02971              5
-           5 |           .02823              3
-           6 |           .02778              4
-           7 |           .02764              4
-           8 |           .02714              6
-           9 |           .02692              4
-          10 |           .02626              4
+           1 |           .03364              4
+           2 |           .03314              5
+           3 |           .03219              4
+           4 |           .03157              3
+           5 |           .03012              5
+           6 |           .02979              6
+           7 |           .02895              5
+           8 |           .02826              4
+           9 |            .0272              3
+          10 |           .02719              5
 ----------------------------------------------
 
 Variable-inclusion summary
@@ -3656,10 +3818,10 @@ Variable-inclusion summary
 -------------+----------------------------------------------------------------------------------------------------
           ds |     x         x         x         x         x         x         x         x         x         x    
         dust |     x         x         x         x         x         x         x         x         x         x    
-       flow2 |     x         x         x         x                             x         x         x    
-         tb2 |     x         x                   x         x         x                   x                   x    
-        ddxy |               x                                                 x         x                   x    
-       dres2 |                                   x                   x                   x         x    
+       flow2 |     x         x         x         x         x         x         x         x    
+         tb2 |     x         x                             x         x                             x         x    
+        ddxy |               x         x                             x         x                             x    
+       dres2 |                                             x         x         x         x                   x    
 ------------------------------------------------------------------------------------------------------------------
 Legend:
   x - estimated
@@ -3678,16 +3840,16 @@ Model summary            Number of models:
              |   Analytical PMP     Model size
 -------------+--------------------------------
 Rank         |
-           1 |           .02512              3
-           2 |           .02382              4
-           3 |           .02312              2
-           4 |           .02306              3
-           5 |           .02277              4
-           6 |           .02248              4
-           7 |           .02157              5
-           8 |           .02152              4
-           9 |           .02147              3
-          10 |           .02131              5
+           1 |           .03339              3
+           2 |           .03078              4
+           3 |           .03034              4
+           4 |           .03031              4
+           5 |           .03002              3
+           6 |           .02799              5
+           7 |           .02796              5
+           8 |           .02772              2
+           9 |           .02738              5
+          10 |           .02717              4
 ----------------------------------------------
 
 Variable-inclusion summary
@@ -3697,10 +3859,10 @@ Variable-inclusion summary
 -------------+----------------------------------------------------------------------------------------------------
           ds |     x         x         x         x         x         x         x         x         x         x    
         ddxy |     x         x         x         x         x         x         x         x         x         x    
-       flow2 |     x         x                             x         x         x                             x    
-        dust |               x                                                 x         x         x         x    
-       dres2 |                                   x         x                   x         x    
-         tb2 |                                                       x                                       x    
+       flow2 |     x         x         x         x                   x         x                   x    
+       dres2 |               x                             x         x         x                             x    
+        dust |                         x                             x                             x         x    
+         tb2 |                                   x                             x                   x    
 ------------------------------------------------------------------------------------------------------------------
 Legend:
   x - estimated
@@ -3722,12 +3884,12 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/B6_bma_varinclu
 . list, noobs clean
 
     h     mdate   mean_pct   sd_pct   median   lower95   lower80   upper80   upper95  
-    1   2026m10       0.32     2.29    17927     17139     17408     18461     18751  
-    2   2026m11       0.64     3.09    17985     16927     17286     18712     19108  
-    3   2026m12       1.04     3.48    18057     16867     17270     18880     19331  
-    4    2027m1       1.26     3.71    18097     16827     17256     18979     19463  
-    5    2027m2       1.52     3.98    18143     16783     17242     19091     19613  
-    6    2027m3       1.81     4.15    18196     16775     17254     19190     19738  
+    1   2026m10       0.32     2.28    17927     17144     17411     18458     18746  
+    2   2026m11       0.68     3.06    17993     16945     17300     18713     19106  
+    3   2026m12       1.03     3.46    18054     16870     17271     18873     19322  
+    4    2027m1       1.29     3.69    18101     16838     17265     18978     19459  
+    5    2027m2       1.53     3.96    18146     16792     17249     19091     19610  
+    6    2027m3       1.79     4.13    18192     16777     17254     19181     19726  
 
 . bv_out tab "B5_bma_final_forecast"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/B5_bma_final_forecast.csv saved
@@ -3751,12 +3913,12 @@ xij variables:
 . list, noobs clean
 
     predic~r    pip1    pip3    pip6  
-        ddxy   0.490   0.488   0.555  
-       dres2   0.482   0.483   0.486  
-          ds   0.505   0.688   0.594  
-        dust   0.505   0.616   0.495  
-       flow2   0.473   0.526   0.514  
-         tb2   0.480   0.519   0.473  
+        ddxy   0.568   0.513   0.609  
+       dres2   0.479   0.485   0.493  
+          ds   0.718   0.786   0.695  
+        dust   0.488   0.575   0.486  
+       flow2   0.475   0.537   0.524  
+         tb2   0.476   0.510   0.473  
 
 . bv_out diag "B4_bma_pip_final"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\diagnostics/B4_bma_pip_final.csv saved
@@ -3919,33 +4081,33 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\intermediate\hybrid_scenarios.dta 
   +-----------------------------------------------------------------------------+
   |       scenario     mdate   lower80   median   upper80   pct_vs~r   scen_s~t |
   |-----------------------------------------------------------------------------|
-  |       Baseline   2026m10     17408    17927     18461       0.32       0.00 |
-  |       Baseline   2026m11     17286    17985     18712       0.64       0.00 |
-  |       Baseline   2026m12     17270    18057     18880       1.05       0.00 |
-  |       Baseline    2027m1     17256    18097     18979       1.27       0.00 |
-  |       Baseline    2027m2     17242    18143     19091       1.53       0.00 |
-  |       Baseline    2027m3     17254    18196     19190       1.83       0.00 |
+  |       Baseline   2026m10     17411    17927     18458       0.32       0.00 |
+  |       Baseline   2026m11     17300    17993     18713       0.69       0.00 |
+  |       Baseline   2026m12     17271    18054     18873       1.03       0.00 |
+  |       Baseline    2027m1     17265    18101     18978       1.29       0.00 |
+  |       Baseline    2027m2     17249    18146     19091       1.55       0.00 |
+  |       Baseline    2027m3     17254    18192     19181       1.80       0.00 |
   |-----------------------------------------------------------------------------|
-  |        Adverse   2026m10     17439    17959     18495       0.50       0.18 |
-  |        Adverse   2026m11     17344    18045     18775       0.98       0.34 |
-  |        Adverse   2026m12     17391    18184     19013       1.76       0.71 |
-  |        Adverse    2027m1     17411    18259     19149       2.18       0.90 |
-  |        Adverse    2027m2     17422    18332     19291       2.59       1.04 |
-  |        Adverse    2027m3     17509    18465     19473       3.33       1.48 |
+  |        Adverse   2026m10     17442    17959     18491       0.50       0.18 |
+  |        Adverse   2026m11     17359    18053     18776       1.03       0.34 |
+  |        Adverse   2026m12     17393    18182     19006       1.74       0.71 |
+  |        Adverse    2027m1     17420    18263     19148       2.20       0.90 |
+  |        Adverse    2027m2     17429    18336     19290       2.61       1.04 |
+  |        Adverse    2027m3     17509    18461     19464       3.30       1.48 |
   |-----------------------------------------------------------------------------|
-  |         Upside   2026m10     17379    17897     18431       0.15      -0.17 |
-  |         Upside   2026m11     17222    17918     18642       0.27      -0.37 |
-  |         Upside   2026m12     17122    17903     18719       0.18      -0.85 |
-  |         Upside    2027m1     17086    17918     18791       0.27      -0.99 |
-  |         Upside    2027m2     17042    17933     18870       0.35      -1.16 |
-  |         Upside    2027m3     16996    17924     18903       0.30      -1.49 |
+  |         Upside   2026m10     17382    17897     18428       0.15      -0.17 |
+  |         Upside   2026m11     17236    17926     18644       0.31      -0.37 |
+  |         Upside   2026m12     17124    17901     18712       0.17      -0.85 |
+  |         Upside    2027m1     17094    17922     18790       0.29      -0.99 |
+  |         Upside    2027m2     17049    17936     18870       0.37      -1.16 |
+  |         Upside    2027m3     16996    17920     18894       0.28      -1.49 |
   |-----------------------------------------------------------------------------|
-  | Severe Adverse   2026m10     17480    18002     18539       0.74       0.42 |
-  | Severe Adverse   2026m11     17436    18141     18874       1.52       0.87 |
-  | Severe Adverse   2026m12     17621    18424     19264       3.10       2.03 |
-  | Severe Adverse    2027m1     17672    18533     19436       3.71       2.41 |
-  | Severe Adverse    2027m2     17732    18659     19634       4.41       2.84 |
-  | Severe Adverse    2027m3     17954    18935     19969       5.96       4.06 |
+  | Severe Adverse   2026m10     17484    18002     18536       0.74       0.42 |
+  | Severe Adverse   2026m11     17451    18149     18876       1.56       0.87 |
+  | Severe Adverse   2026m12     17622    18421     19257       3.09       2.03 |
+  | Severe Adverse    2027m1     17681    18537     19435       3.73       2.41 |
+  | Severe Adverse    2027m2     17739    18662     19633       4.43       2.84 |
+  | Severe Adverse    2027m3     17954    18930     19959       5.93       4.06 |
   +-----------------------------------------------------------------------------+
 
 . bv_out tab "T15_hybrid_scenarios"
@@ -3963,10 +4125,10 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T15_hybrid_scenarios
 .         list, noobs clean
 
           scenario    mdate   median   lower80   upper80   lower95   upper95   pct_vs~r   scen_s~t  
-          Baseline   2027m3    18196     17254     19190     16775     19738       1.83       0.00  
-           Adverse   2027m3    18465     17509     19473     17023     20029       3.33       1.48  
-            Upside   2027m3    17924     16996     18903     16524     19443       0.30      -1.49  
-    Severe Adverse   2027m3    18935     17954     19969     17456     20539       5.96       4.06  
+          Baseline   2027m3    18192     17254     19181     16777     19726       1.80       0.00  
+           Adverse   2027m3    18461     17509     19464     17025     20017       3.30       1.48  
+            Upside   2027m3    17920     16996     18894     16526     19431       0.28      -1.49  
+    Severe Adverse   2027m3    18930     17954     19959     17458     20526       5.93       4.06  
 
 .         bv_out tab "T16_hybrid_summary"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T16_hybrid_summary.csv saved
@@ -3999,8 +4161,8 @@ xij variables:
 .         sort mdate
 
 .         bv_pngtable bulan cell1 cell2 cell3 cell4, file("$fig\10_hybrid_table.png") ///
->                 title("Forecast USD/IDR per skenario: median [rentang 80%], anchor Sep 2026 =`=strtrim(string($anchor_
-> spot, "%9.0fc"))'") ///
+>                 title("Forecast USD/IDR per skenario: median [rentang 80%], anchor `: di %tmMon_CCYY $final_origin' = 
+> `=strtrim(string($anchor_spot, "%9.0fc"))'") ///
 >                 heads("Bulan" "Baseline (BMA)" "Adverse" "Upside" "Severe Adverse") widths(14 26 26 26 26) ///
 >                 note("Baseline = BMA. Skenario = Baseline BMA x (skenario / baseline) BVARX. Rentang = interval predik
 > tif 80% BMA, digeser sesuai skenario.")
@@ -4179,11 +4341,17 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T18_hybrid_scenario_
   3.         qui replace c1 = "`sl'" in `i'
   4. }
 
+. local m0 : di %tmMon_YY $final_origin
+
+. local m3 : di %tmMon_YY $final_origin + 3
+
+. local m6 : di %tmMon_YY $final_origin + 6
+
 . bv_pngtable c1 c2 c3 c4 c5 c6 c7 c8 c9, file("$fig\10_hybrid_scenario_table.png") ///
->         title("Ringkasan skenario USD/IDR: Baseline BMA, efek skenario dari BVARX (anchor Sep 2026 =`=strtrim(string($
-> anchor_spot, "%9.0fc"))')") ///
->         heads("Skenario" "DXY Mar-27" "TB Des-26" "TB Mar-27" "Flows Des-26" "Flows Mar-27" "USD/IDR Des-26" "USD/IDR 
-> Mar-27 [80%]" "vs Sep-26") ///
+>         title("Ringkasan skenario USD/IDR: Baseline BMA, efek skenario dari BVARX (anchor `: di %tmMon_CCYY $final_ori
+> gin' = `=strtrim(string($anchor_spot, "%9.0fc"))')") ///
+>         heads("Skenario" "DXY `m6'" "TB `m3'" "TB `m6'" "Flows `m3'" "Flows `m6'" "USD/IDR `m3'" "USD/IDR `m6' [80%]" 
+> "vs `m0'") ///
 >         widths(18 11 10 10 12 12 14 26 10) ///
 >         note("Asumsi DXY/TB/flows dan efek skenario dari BVARX; Baseline dan rentang dari BMA. TB dalam USD bn, flows 
 > dalam Rp tn.")
@@ -4239,9 +4407,9 @@ file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\figures\10_hybrid_macro.png
 .         list, noobs clean
 
     horizon   relati~e    cw_p    dm_p   direct~n   cover~80   cover~95  
-          1      0.991   0.235   0.705      0.615      0.923      0.962  
-          3      0.943   0.073   0.347      0.731      0.846      0.962  
-          6      0.860   0.022   0.294      0.769      0.808      1.000  
+          1      0.987   0.248   0.680      0.615      0.923      0.962  
+          3      0.934   0.056   0.283      0.731      0.846      0.962  
+          6      0.857   0.020   0.281      0.769      0.808      1.000  
 
 .         bv_out tab "T17_hybrid_baseline_test"
 file C:\Users\LENOVO05\github\Simulasi-Rupiah\output\tables/T17_hybrid_baseline_test.csv saved
@@ -4402,14 +4570,14 @@ end of do-file
 . timer off 1
 
 . timer list 1
-   1:    128.24 /        1 =     128.2400
+   1:    135.98 /        1 =     135.9780
 
 . di "Selesai: `c(current_date)' `c(current_time)'"
-Selesai: 30 Oct 2026 18:49:21
+Selesai:  2 Nov 2026 13:13:59
 
 . log close main
       name:  main
        log:  C:\Users\LENOVO05\github\Simulasi-Rupiah\output\run_log.log
   log type:  text
- closed on:  30 Oct 2026, 18:49:21
+ closed on:   2 Nov 2026, 13:13:59
 ------------------------------------------------------------------------------------------------------------------------
