@@ -120,7 +120,7 @@ if "$profile" == "quick" {
 else if "$profile" == "standard" {
 	global n_val 200
 	global n_test 1000
-	* 10.000 draw: skenario outflow mengunci flows 6 bulan, ESS Severe Adverse ~0,09
+	* 10.000 draw: Skenario 1-3 mengunci TB dan flows 6 bulan (ESS turun)
 	global n_final 10000
 }
 else if "$profile" == "publication" {
@@ -180,9 +180,11 @@ global H_final 6
 global model_mode "changes"
 * Asumsi skenario per bulan dibaca dari sheet ini di $data_file (06_final_scenarios.do):
 * DXY kumulatif vs anchor (%), geser TB (USD bn) dan flows (Rp tn) terhadap median baseline;
-* sel TB/flows kosong = bulan itu tidak dikunci. Lima skenario: Baseline, Mild Adverse, Adverse,
-* Severe Adverse (DXY +1/+2/+5%, TB -0,5/-1/-2 di h = 3 dan 6, flows = outflow MSCI absolut tiap bulan:
-* total Rp49,58/139,48/247,53 tn), Upside (DXY -2%, TB +1, flows +10 vs baseline di h = 3 dan 6).
+* perubahan cadangan devisa (100*dln); sel TB/flows/cadangan kosong = bulan itu tidak dikunci.
+* Empat baris skenario: Baseline, Skenario 1, 2, 3
+* (v4.6: jalur DXY, TB, dan net flows asing tiap bulan dari sheet Skenario di Simulasi Nilai Tukar.xlsx;
+* flows USD bn x JISDOR Okt 2026 = Rp tn; cadangan dikunci: liquid reserve Sep 2026 + delta absolut cadangan
+* resmi sheet Skenario vs Sep 2026, dibaca model sebagai 100*dln per bulan).
 global scen_sheet "scenario_inputs"
 
 set seed $seed

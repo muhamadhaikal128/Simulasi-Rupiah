@@ -590,7 +590,7 @@ program define bv_score
 end
 
 **## 2.6 Run akhir: baseline + skenario (dipakai 06 dan 08)
-* Skenario: 1 Baseline, 2 Adverse, 3 Upside, 4 Severe Adverse, 5 Mild Adverse.
+* Skenario: 1 Baseline, 2 Skenario 1, 3 Skenario 2, 4 Skenario 3.
 mata:
 // Ringkasan jalur semua variabel (median, satuan alami) per step: (scen, mdate, s, tb, flows, res)
 // Model changes: cadangan dalam perubahan log (bukan level), jadi kolom res dikosongkan.
@@ -613,8 +613,9 @@ real matrix bv_paths_median(struct bvpred scalar pr, real rowvector steps, real 
 	return(M)
 }
 
-// Kondisi skenario dari sheet scenario_inputs. sc: baris (h, geser TB USD bn, geser flows Rp tn);
-// missing = bulan itu tidak dikunci. Nilai kondisi = median Baseline BVARX + geser (flows model = Rp10 tn).
+// Kondisi skenario dari sheet scenario_inputs. sc: baris (h, geser TB USD bn, geser flows Rp tn, cadangan 100*dln);
+// missing = bulan itu tidak dikunci. TB/flows = median Baseline BVARX + geser (flows model = Rp10 tn);
+// cadangan (variabel 4, model changes = perubahan 100*ln liquid reserve) = nilai langsung.
 real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scalar cutoff, real matrix sc)
 {
 	real matrix X
@@ -624,6 +625,7 @@ real matrix bv_scen_cond(struct bvpred scalar pb, real scalar origin, real scala
 		s = origin + sc[i, 1] - cutoff
 		if (!missing(sc[i, 2])) X = X \ (s, 2, bv_median_path(pb, s, 2, 4) + sc[i, 2])
 		if (!missing(sc[i, 3])) X = X \ (s, 3, bv_median_path(pb, s, 3, 4) + sc[i, 3]/10)
+		if (!missing(sc[i, 4])) X = X \ (s, 4, sc[i, 4])
 	}
 	return(X)
 }
@@ -648,8 +650,8 @@ real matrix bv_x_effect(struct bvfit scalar f, real scalar k)
 }
 
 // SC = input skenario (sheet scenario_inputs), satu baris per skenario x bulan, terurut skenario lalu h:
-// kolom (kode skenario 1 Baseline / 2 Adverse / 3 Upside / 4 Severe Adverse / 5 Mild Adverse, h, DXY kumulatif vs origin
-// dalam pecahan, geser TB USD bn, geser flows Rp tn). Tiap skenario punya h = 1..H lengkap.
+// kolom (kode skenario 1 Baseline / 2 Skenario 1 / 3 Skenario 2 / 4 Skenario 3, h, DXY kumulatif vs origin
+// dalam pecahan, geser TB USD bn, geser flows Rp tn, perubahan cadangan 100*dln). Tiap skenario punya h = 1..H lengkap.
 void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real scalar sy0, real scalar p, real scalar lambda, real scalar inc_ust, real scalar nd, real matrix SC, real scalar soc)
 {
 	external struct bvdata scalar D
@@ -691,10 +693,10 @@ void bv_final_run(real scalar cutoff, real scalar origin, real scalar H, real sc
 	FIN_diag = (1, pb.ess, pb.ess/nd, pb.root_gt1, pb.root_gt105)
 	xc = J(rows(bridge), 1, 0), bridge
 	FIN_glob = ub.times, ub.dxy
-	for (k = 2; k <= 5; k++) {
+	for (k = 2; k <= max(SC[., 1]); k++) {
 		S = select(SC, SC[., 1] :== k)
 		if (rows(S) != H) _error("sheet skenario: skenario " + strofreal(k) + " harus berisi h = 1.." + strofreal(H))
-		xs = bv_scen_cond(pb, origin, f.cutoff, S[., (2, 4, 5)])
+		xs = bv_scen_cond(pb, origin, f.cutoff, S[., (2, 4, 5, 6)])
 		u = bv_future(f, D, origin, H, S[., 3], 0)
 		u.cond = bridge
 		ps = bv_predict(f, u, nd, xs, 40001)

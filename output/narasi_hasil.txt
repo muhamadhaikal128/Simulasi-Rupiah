@@ -13,9 +13,8 @@ Bootstrap (blok 6) h=3: interval 95% relative RMSE 0.938-1.228 (meliputi 1: belu
 Bootstrap (blok 6) h=6: interval 95% relative RMSE 0.920-1.205 (meliputi 1: belum ada bukti kuat mengungguli RW).
 
 Skenario Baseline: median USD/IDR pada Apr 2027 adalah   18220, dengan rentang predictive 80%   16968-  19612.
-Skenario Adverse: median USD/IDR pada Apr 2027 adalah   19535, dengan rentang predictive 80%   18290-  20919.
-Skenario Upside: median USD/IDR pada Apr 2027 adalah   17935, dengan rentang predictive 80%   16766-  19199.
-Skenario Severe Adverse: median USD/IDR pada Apr 2027 adalah   20506, dengan rentang predictive 80%   19191-  22007.
-Skenario Mild Adverse: median USD/IDR pada Apr 2027 adalah   18847, dengan rentang predictive 80%   17676-  20122.
+Skenario Skenario 1: median USD/IDR pada Apr 2027 adalah   19188, dengan rentang predictive 80%   17981-  20465.
+Skenario Skenario 2: median USD/IDR pada Apr 2027 adalah   19665, dengan rentang predictive 80%   18456-  21012.
+Skenario Skenario 3: median USD/IDR pada Apr 2027 adalah   20335, dengan rentang predictive 80%   19071-  21812.
 
 Bersyarat pada jalur DXY dan pembatasan observabel yang dijelaskan. Skenario adalah proyeksi bersama model, bukan estimasi efek kausal tunggal.

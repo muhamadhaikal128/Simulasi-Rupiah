@@ -288,3 +288,49 @@ Hasil run v3, 30 Okt 2026 14:53 (spesifikasi: start 2013, lag 2, lambda 0,1; N =
   (+3,4%, +7,2%, +12,5% vs baseline).
 - Deck ringkas v2 diperbarui. Manual (docx/pdf), deck lengkap, dan README belum diperbarui ke v4.5.
 - Perbaikan teks entri v4.3 dan v4.4 yang rusak saat ditulis lewat PowerShell.
+
+## v4.6 — 5–8 Nov 2026: Skenario 1–3 dan kunci cadangan devisa (liquid reserve)
+
+- Skenario diganti menjadi Baseline + Skenario 1, 2, 3 (kode 2–4; Upside, Mild Adverse, Adverse, Severe
+  Adverse dihapus). Sumber: sheet Skenario di Simulasi Nilai Tukar.xlsx, per bulan Nov 2026 – Apr 2027:
+  DXY level (Apr +1,9 / +4,8 / +7,6% vs anchor), trade balance (USD juta / 1000), dan net flows asing total
+  saham + SBN (USD miliar × JISDOR Okt 2026 18.138 = −19,8 / −28,0 / −40,0 Rp tn per bulan).
+- Cadangan devisa ikut dikunci. Cadangan di sheet Skenario adalah cadangan resmi (Sep 2026 146,32), sedangkan
+  model memakai liquid reserve (Sep 2026 125,19). Jalur dikonversi dengan delta absolut: liquid = 125,19 +
+  (resmi − 146,32), lalu dibaca model sebagai perubahan 100*ln per bulan (−0,22 / −0,59 / −0,97% per bulan;
+  liquid Apr 2027 123,6 / 120,8 / 118,1).
+- Sheet scenario_inputs: kolom F `res_dln_pct` (rumus, dibaca model), kolom O cadangan resmi sumber, acuan
+  Sep 2026 di Q23/Q24, catatan pindah ke kolom P/Q; kolom H diberi judul `pemisah` (kolom kosong tanpa judul
+  terbaca sebagai variabel `h` dan bentrok dengan kolom h).
+- `02_bvarx_functions.do`: `bv_scen_cond` menerima kolom keempat (cadangan, dikunci langsung); `06` membaca
+  `res_dln_pct`; label, grafik, dan tabel skenario mengikuti nama Skenario 1–3; `rupiah_bvarx_all.do` ikut.
+- Hasil run 8 Nov 2026 19:38, USD/IDR Apr 2027 (median [80%]): Baseline 18.459 [17.508–19.461];
+  Skenario 1 19.439 [18.438–20.494] (+5,3% vs baseline); Skenario 2 19.922 [18.896–21.004] (+7,9%);
+  Skenario 3 20.601 [19.540–21.720] (+11,6%). ESS 0,56 / 0,45 / 0,18; tidak ada akar companion > 1.
+  Tanpa kunci cadangan (run 5 Nov): 19.573 / 20.101 / 20.836.
+- Manual, README, dan deck belum diperbarui ke v4.6.
+
+## Uji, tidak dipakai — 8 Nov 2026: surprise kebijakan Fed dan BI (overshooting)
+
+Tujuan: apakah efek lonjakan kurs saat suku bunga berubah tak terduga (Dornbusch overshooting), yang tidak
+ditangkap prior UIP, layak masuk BVARX sebagai eksogen. Model, database, dan output tidak diubah.
+
+- Data surprise (dikumpulkan sendiri, positif = lebih hawkish dari ekspektasi):
+  - Fed: perubahan yield UST 2Y (Treasury.gov par yield) pada hari pengumuman FOMC, 112 keputusan
+    Jan 2013 – Okt 2026 (keputusan suku bunga terjadwal + darurat Mar 2020; pernyataan non-suku bunga
+    11 Okt 2019, 23 dan 31 Mar 2020, 27 Agu 2020, 22 Agu 2025 tidak dihitung). FedWatch/fed funds futures
+    tidak dipakai karena hanya menangkap kejutan keputusan hari itu, bukan forward guidance (Des 2023:
+    FedWatch ≈ 0, 2Y −27 bps), dan data historisnya berbayar.
+  - BI: keputusan aktual − konsensus polling Reuters/Bloomberg/WSJ dari pemberitaan, 56 keputusan
+    (19 hawkish, 15 dovish, 22 sesuai konsensus; 6 tanpa konsensus terverifikasi diisi 0).
+- Event study harian (kurs Bloomberg IDR REGN dan DXY sampai 22 Sep 2026; jendela Fed = penutupan Asia
+  hari t ke t+1, BI = H−1 ke H+1; SE robust). Efek per surprise 25 bps:
+  - Fed: +0,77% (rupiah melemah, p < 0,001); tanpa Mar 2020 +0,81%; mengontrol DXY +0,76%.
+  - BI: −0,20% (rupiah menguat, p = 0,017); hanya terverifikasi −0,20%; mengontrol DXY −0,18% (p = 0,056).
+  - Regresi bulanan memberi arah terbalik (Fed −1,78%, BI +0,74%, keduanya tidak signifikan): simultaneity,
+    karena BI menaikkan bunga di bulan rupiah tertekan.
+- Persistensi (1 / 2 / 5 / 10 / 20 hari bursa): Fed +0,77 / +0,77 / +0,39 / +0,20 / +0,93% (signifikan hanya
+  hari 1–2; interval 20 hari −0,8 s.d. +2,6); BI −0,20 / −0,17 / −0,17 / 0,00 / +0,09% (hilang dalam ±10 hari).
+- Keputusan: tidak dimasukkan ke BVARX. Efek BI pada frekuensi bulanan ≈ 0; efek Fed setelah 2 hari tidak
+  terbedakan dari nol, dan kanal bulanannya (DXY, arus modal) sudah menjadi asumsi skenario. Selisih BI–Fed
+  tetap datar di skenario. Temuan dipakai sebagai landasan: overshooting ada, tetapi sesaat.
